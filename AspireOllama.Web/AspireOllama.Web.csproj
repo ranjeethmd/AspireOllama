@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AspireOllama.ServiceDefaults\AspireOllama.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\AspireOllama.Shared\AspireOllama.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

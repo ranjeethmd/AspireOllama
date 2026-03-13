@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet --version:*)",
+      "Bash(dotnet build:*)",
+      "Bash(find:*)",
+      "Bash(dotnet list:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet run:*)",
+      "Bash(timeout /t 5 /nobreak)",
+      "Bash(aspire run:*)",
+      "Bash(ping:*)",
+      "Bash(dir:*)",
+      "Bash(docker info:*)",
+      "Bash(taskkill /F /PID 50716)",
+      "Bash(pkill:*)",
+      "Bash(cmd //c \"taskkill /F /PID 50716\")",
+      "Bash(cmd //c \"taskkill /F /PID 43568\")",
+      "Bash(cmd //c \"tasklist | findstr Aspire\")",
+      "Bash(cmd //c \"tasklist | findstr ollama\")",
+      "Bash(cmd //c \"taskkill /F /IM AspireOllama.AppHost.exe 2>nul & taskkill /F /IM AspireOllama.ApiService.exe 2>nul & taskkill /F /IM AspireOllama.Web.exe 2>nul & exit /b 0\")",
+      "Bash(findstr:*)"
+    ]
+  }
+}
