@@ -1,3 +1,4 @@
+using AspireOllama.Shared;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -25,6 +26,7 @@ public class ChatDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Role).HasMaxLength(50);
             entity.Property(e => e.ImagesJson).HasColumnType("TEXT");
+            entity.Property(e => e.FilesJson).HasColumnType("TEXT");
             entity.HasOne<ChatSessionEntity>()
                 .WithMany()
                 .HasForeignKey(e => e.SessionId)
@@ -48,6 +50,7 @@ public class ChatMessageEntity
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string ImagesJson { get; set; } = "[]";
+    public string FilesJson { get; set; } = "[]";
     public DateTime Timestamp { get; set; }
 
     public List<ImageAttachmentData> GetImages()
@@ -61,6 +64,18 @@ public class ChatMessageEntity
     {
         ImagesJson = JsonSerializer.Serialize(images);
     }
+
+    public List<FileAttachmentData> GetFiles()
+    {
+        if (string.IsNullOrEmpty(FilesJson))
+            return new List<FileAttachmentData>();
+        return JsonSerializer.Deserialize<List<FileAttachmentData>>(FilesJson) ?? new List<FileAttachmentData>();
+    }
+
+    public void SetFiles(List<FileAttachmentData> files)
+    {
+        FilesJson = JsonSerializer.Serialize(files);
+    }
 }
 
 public class ImageAttachmentData
@@ -68,4 +83,12 @@ public class ImageAttachmentData
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = string.Empty;
     public string Base64Data { get; set; } = string.Empty;
+}
+
+public class FileAttachmentData
+{
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public string Base64Data { get; set; } = string.Empty;
+    public FileType Type { get; set; } = FileType.Unknown;
 }

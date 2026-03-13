@@ -70,7 +70,7 @@ public class ChatHistoryService
         return true;
     }
 
-    public async Task AddMessageAsync(string sessionId, string role, string content, List<ImageAttachment>? images = null)
+    public async Task AddMessageAsync(string sessionId, string role, string content, List<ImageAttachment>? images = null, List<FileAttachment>? files = null)
     {
         var message = new ChatMessageEntity
         {
@@ -90,6 +90,17 @@ public class ChatHistoryService
             }).ToList());
         }
 
+        if (files != null && files.Count > 0)
+        {
+            message.SetFiles(files.Select(f => new FileAttachmentData
+            {
+                FileName = f.FileName,
+                ContentType = f.ContentType,
+                Base64Data = f.Base64Data,
+                Type = f.Type
+            }).ToList());
+        }
+
         _context.ChatMessages.Add(message);
 
         // Update session title from first user message
@@ -101,7 +112,9 @@ public class ChatHistoryService
                 var messageCount = await _context.ChatMessages.CountAsync(m => m.SessionId == sessionId);
                 if (messageCount == 0) // This is the first message
                 {
-                    session.Title = content.Length > 50 ? content.Substring(0, 47) + "..." : content;
+                    var title = !string.IsNullOrWhiteSpace(content) ? content :
+                        (files?.FirstOrDefault()?.FileName ?? images?.FirstOrDefault()?.FileName ?? "New Chat");
+                    session.Title = title.Length > 50 ? title.Substring(0, 47) + "..." : title;
                 }
                 session.UpdatedAt = DateTime.UtcNow;
             }
@@ -131,6 +144,7 @@ public class ChatHistoryService
     private static ChatHistoryMessage ToMessageDto(ChatMessageEntity entity)
     {
         var images = entity.GetImages();
+        var files = entity.GetFiles();
         return new ChatHistoryMessage
         {
             Id = entity.Id,
@@ -142,6 +156,13 @@ public class ChatHistoryService
                 FileName = i.FileName,
                 ContentType = i.ContentType,
                 Base64Data = i.Base64Data
+            }).ToList(),
+            Files = files.Select(f => new FileAttachment
+            {
+                FileName = f.FileName,
+                ContentType = f.ContentType,
+                Base64Data = f.Base64Data,
+                Type = f.Type
             }).ToList(),
             Timestamp = entity.Timestamp
         };

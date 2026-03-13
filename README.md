@@ -5,9 +5,10 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 ## Features
 
 - **Vision-Enabled AI Chat** - Upload images and get AI-powered analysis using the llava vision model
+- **Document Analysis** - Upload and analyze PDF, Word, Excel, PowerPoint, and text files
 - **Persistent Chat History** - SQLite-backed session storage with full conversation history
 - **Session Management** - Create, switch, and delete chat sessions
-- **Image Upload** - Support for JPEG, PNG, GIF, and WebP (max 5 images, 10MB each)
+- **Multi-File Upload** - Support for images and documents (max 10 files, 20MB each)
 - **Local LLM Inference** - Runs entirely on your machine using Ollama with GPU acceleration
 - **Cloud-Native Architecture** - Built on .NET Aspire with automatic service discovery and health checks
 - **Open WebUI** - Includes Ollama's Open WebUI for direct model interaction
@@ -41,6 +42,8 @@ AspireOllama/
 - **Entity Framework Core** - SQLite persistence
 - **Microsoft.Extensions.AI** - Unified AI abstractions
 - **CommunityToolkit.Aspire.OllamaSharp** - Ollama integration for Aspire
+- **DocumentFormat.OpenXml** - Word, Excel, PowerPoint processing
+- **PdfPig** - PDF text extraction
 
 ## Getting Started
 
@@ -80,18 +83,26 @@ Once running, the Aspire Dashboard will show all service endpoints:
 
 ## Configuration
 
-### Supported Image Formats
+### Supported File Formats
 
+**Images:**
 - JPEG (.jpg, .jpeg)
 - PNG (.png)
 - GIF (.gif)
 - WebP (.webp)
 
+**Documents:**
+- PDF (.pdf)
+- Microsoft Word (.doc, .docx)
+- Microsoft Excel (.xls, .xlsx)
+- Microsoft PowerPoint (.ppt, .pptx)
+- Text files (.txt, .csv, .md, .json, .xml, .log)
+
 ### Limits
 
-- Maximum 5 images per message
-- Maximum 10MB per image
-- HTTP client timeout: 10 minutes (for large image processing)
+- Maximum 10 files per message
+- Maximum 20MB per file
+- HTTP client timeout: 10 minutes (for large file processing)
 
 ## Development
 

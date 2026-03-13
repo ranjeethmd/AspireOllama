@@ -27,6 +27,9 @@ builder.Services.AddDbContext<ChatDbContext>(options =>
 // Add chat history service
 builder.Services.AddScoped<ChatHistoryService>();
 
+// Add document processing service
+builder.Services.AddScoped<DocumentProcessingService>();
+
 // Add services to the container.
 builder.Services.AddProblemDetails();
 
@@ -111,7 +114,7 @@ app.MapDelete("/sessions/{id}", async (string id, ChatHistoryService historyServ
 .WithName("DeleteSession");
 
 // Chat endpoint with multimodal support
-app.MapPost("/chat", async (IChatClient chatClient, ChatHistoryService historyService, ChatMessageRequest request, ILogger<Program> logger) =>
+app.MapPost("/chat", async (IChatClient chatClient, ChatHistoryService historyService, DocumentProcessingService docService, ChatMessageRequest request, ILogger<Program> logger) =>
 {
     try
     {
@@ -130,7 +133,7 @@ app.MapPost("/chat", async (IChatClient chatClient, ChatHistoryService historySe
             messages.Add(new ChatMessage(role, msg.Content));
         }
 
-        // Build current message with potential images
+        // Build current message with potential images and documents
         var contentParts = new List<AIContent>();
 
         // Add images first if present
@@ -155,14 +158,43 @@ app.MapPost("/chat", async (IChatClient chatClient, ChatHistoryService historySe
             }
         }
 
-        // Add text content
-        contentParts.Add(new TextContent(request.Content ?? "Describe this image"));
+        // Process documents and extract text
+        var documentTexts = new List<string>();
+        if (request.Files != null && request.Files.Count > 0)
+        {
+            logger.LogInformation("Processing {Count} documents", request.Files.Count);
+            foreach (var file in request.Files)
+            {
+                logger.LogInformation("Extracting text from: {FileName}, Type: {Type}", file.FileName, file.Type);
+                var extractedText = docService.ExtractText(file);
+                if (!string.IsNullOrWhiteSpace(extractedText))
+                {
+                    documentTexts.Add($"--- Content from {file.FileName} ---\n{extractedText}\n--- End of {file.FileName} ---");
+                }
+            }
+        }
+
+        // Build the text content with document context
+        var textContent = request.Content ?? "";
+        if (documentTexts.Count > 0)
+        {
+            var documentContext = string.Join("\n\n", documentTexts);
+            textContent = string.IsNullOrWhiteSpace(textContent)
+                ? $"Please analyze the following document(s):\n\n{documentContext}"
+                : $"{textContent}\n\nDocument content:\n\n{documentContext}";
+        }
+        else if (string.IsNullOrWhiteSpace(textContent) && request.Images?.Count > 0)
+        {
+            textContent = "Describe this image";
+        }
+
+        contentParts.Add(new TextContent(textContent));
 
         var userMessage = new ChatMessage(ChatRole.User, contentParts);
         messages.Add(userMessage);
 
-        // Save user message to history
-        await historyService.AddMessageAsync(request.SessionId, "user", request.Content ?? "", request.Images);
+        // Save user message to history (save original content, not the expanded version)
+        await historyService.AddMessageAsync(request.SessionId, "user", request.Content ?? "", request.Images, request.Files);
 
         logger.LogInformation("Calling Ollama with {MessageCount} messages", messages.Count);
 
