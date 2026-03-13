@@ -35,7 +35,7 @@ AspireOllama/
 ## Tech Stack
 
 - **.NET 10** / **C# 13**
-- **.NET Aspire 9** - Cloud-native orchestration
+- **.NET Aspire 13** - Cloud-native orchestration
 - **Ollama** - Local LLM inference
 - **llava** - Vision-capable language model
 - **Blazor Server** - Interactive web UI
