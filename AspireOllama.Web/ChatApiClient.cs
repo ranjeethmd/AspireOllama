@@ -2,8 +2,17 @@ using AspireOllama.Shared;
 
 namespace AspireOllama.Web;
 
+/// <summary>
+/// HTTP client for communicating with the AspireOllama API service.
+/// Handles chat messages, sessions, and history operations.
+/// </summary>
+/// <param name="httpClient">Configured HttpClient with base URL pointing to API service</param>
 public class ChatApiClient(HttpClient httpClient)
 {
+    /// <summary>
+    /// Sends a simple text message (legacy method).
+    /// </summary>
+    [Obsolete("Use SendMessageAsync(ChatMessageRequest) for full functionality")]
     public async Task<string> SendMessageAsync(string message, CancellationToken cancellationToken = default)
     {
         var response = await httpClient.PostAsJsonAsync("/chat", message, cancellationToken);
@@ -11,6 +20,11 @@ public class ChatApiClient(HttpClient httpClient)
         return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Sends a chat message with optional images and document attachments.
+    /// </summary>
+    /// <param name="request">Request containing session ID, text, images, and files</param>
+    /// <returns>AI response with session ID</returns>
     public async Task<ChatMessageResponse> SendMessageAsync(ChatMessageRequest request, CancellationToken cancellationToken = default)
     {
         var response = await httpClient.PostAsJsonAsync("/chat", request, cancellationToken);
@@ -19,6 +33,10 @@ public class ChatApiClient(HttpClient httpClient)
             ?? new ChatMessageResponse();
     }
 
+    /// <summary>
+    /// Creates a new chat session.
+    /// </summary>
+    /// <returns>The newly created session with ID and default title</returns>
     public async Task<ChatSession> CreateSessionAsync(CancellationToken cancellationToken = default)
     {
         var response = await httpClient.PostAsync("/sessions", null, cancellationToken);
@@ -27,12 +45,21 @@ public class ChatApiClient(HttpClient httpClient)
             ?? new ChatSession();
     }
 
+    /// <summary>
+    /// Retrieves all chat sessions, ordered by most recently updated.
+    /// </summary>
+    /// <returns>List of sessions for sidebar display</returns>
     public async Task<List<ChatSession>> GetSessionsAsync(CancellationToken cancellationToken = default)
     {
         return await httpClient.GetFromJsonAsync<List<ChatSession>>("/sessions", cancellationToken)
             ?? new List<ChatSession>();
     }
 
+    /// <summary>
+    /// Retrieves a session with all its messages for display.
+    /// </summary>
+    /// <param name="sessionId">The session ID to retrieve</param>
+    /// <returns>Session with messages, or null if not found</returns>
     public async Task<ChatSessionDetails?> GetSessionHistoryAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         var response = await httpClient.GetAsync($"/sessions/{sessionId}", cancellationToken);
@@ -41,6 +68,11 @@ public class ChatApiClient(HttpClient httpClient)
         return await response.Content.ReadFromJsonAsync<ChatSessionDetails>(cancellationToken);
     }
 
+    /// <summary>
+    /// Deletes a chat session and all its messages.
+    /// </summary>
+    /// <param name="sessionId">The session ID to delete</param>
+    /// <returns>True if deleted successfully</returns>
     public async Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         var response = await httpClient.DeleteAsync($"/sessions/{sessionId}", cancellationToken);

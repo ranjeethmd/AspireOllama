@@ -2,18 +2,23 @@ using AspireOllama.ApiService.Data;
 using AspireOllama.Shared;
 using Microsoft.EntityFrameworkCore;
 
-namespace AspireOllama.ApiService.Services;
+namespace AspireOllama.ApiService.Services.Session;
 
-public class ChatHistoryService
+/// <summary>
+/// Manages chat session persistence in the database.
+/// Single responsibility: CRUD operations for chat sessions only.
+/// </summary>
+public class SessionService : ISessionService
 {
     private readonly ChatDbContext _context;
 
-    public ChatHistoryService(ChatDbContext context)
+    public SessionService(ChatDbContext context)
     {
         _context = context;
     }
 
-    public async Task<ChatSession> CreateSessionAsync()
+    /// <inheritdoc />
+    public async Task<ChatSession> CreateAsync()
     {
         var session = new ChatSessionEntity
         {
@@ -29,7 +34,8 @@ public class ChatHistoryService
         return ToDto(session);
     }
 
-    public async Task<List<ChatSession>> GetSessionsAsync()
+    /// <inheritdoc />
+    public async Task<List<ChatSession>> GetAllAsync()
     {
         var sessions = await _context.ChatSessions
             .OrderByDescending(s => s.UpdatedAt)
@@ -38,10 +44,11 @@ public class ChatHistoryService
         return sessions.Select(ToDto).ToList();
     }
 
-    public async Task<ChatSessionDetails?> GetSessionWithMessagesAsync(string sessionId)
+    /// <inheritdoc />
+    public async Task<ChatSessionDetails?> GetByIdAsync(string sessionId)
     {
         var session = await _context.ChatSessions.FindAsync(sessionId);
-        if (session == null)
+        if (session is null)
             return null;
 
         var messages = await _context.ChatMessages
@@ -59,10 +66,11 @@ public class ChatHistoryService
         };
     }
 
-    public async Task<bool> DeleteSessionAsync(string sessionId)
+    /// <inheritdoc />
+    public async Task<bool> DeleteAsync(string sessionId)
     {
         var session = await _context.ChatSessions.FindAsync(sessionId);
-        if (session == null)
+        if (session is null)
             return false;
 
         _context.ChatSessions.Remove(session);
@@ -70,68 +78,32 @@ public class ChatHistoryService
         return true;
     }
 
-    public async Task AddMessageAsync(string sessionId, string role, string content, List<ImageAttachment>? images = null, List<FileAttachment>? files = null)
+    /// <inheritdoc />
+    public async Task UpdateTitleAsync(string sessionId, string title)
     {
-        var message = new ChatMessageEntity
-        {
-            SessionId = sessionId,
-            Role = role,
-            Content = content,
-            Timestamp = DateTime.UtcNow
-        };
+        var session = await _context.ChatSessions.FindAsync(sessionId);
+        if (session is null)
+            return;
 
-        if (images != null && images.Count > 0)
-        {
-            message.SetImages(images.Select(i => new ImageAttachmentData
-            {
-                FileName = i.FileName,
-                ContentType = i.ContentType,
-                Base64Data = i.Base64Data
-            }).ToList());
-        }
-
-        if (files != null && files.Count > 0)
-        {
-            message.SetFiles(files.Select(f => new FileAttachmentData
-            {
-                FileName = f.FileName,
-                ContentType = f.ContentType,
-                Base64Data = f.Base64Data,
-                Type = f.Type
-            }).ToList());
-        }
-
-        _context.ChatMessages.Add(message);
-
-        // Update session title from first user message
-        if (role == "user")
-        {
-            var session = await _context.ChatSessions.FindAsync(sessionId);
-            if (session != null)
-            {
-                var messageCount = await _context.ChatMessages.CountAsync(m => m.SessionId == sessionId);
-                if (messageCount == 0) // This is the first message
-                {
-                    var title = !string.IsNullOrWhiteSpace(content) ? content :
-                        (files?.FirstOrDefault()?.FileName ?? images?.FirstOrDefault()?.FileName ?? "New Chat");
-                    session.Title = title.Length > 50 ? title.Substring(0, 47) + "..." : title;
-                }
-                session.UpdatedAt = DateTime.UtcNow;
-            }
-        }
-
+        // Truncate long titles
+        session.Title = title.Length > 50 ? title.Substring(0, 47) + "..." : title;
         await _context.SaveChangesAsync();
     }
 
-    public async Task<List<ChatHistoryMessage>> GetMessagesAsync(string sessionId)
+    /// <inheritdoc />
+    public async Task TouchAsync(string sessionId)
     {
-        var messages = await _context.ChatMessages
-            .Where(m => m.SessionId == sessionId)
-            .OrderBy(m => m.Timestamp)
-            .ToListAsync();
+        var session = await _context.ChatSessions.FindAsync(sessionId);
+        if (session is null)
+            return;
 
-        return messages.Select(ToMessageDto).ToList();
+        session.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
     }
+
+    // ============================================================
+    // DTO Conversion Methods
+    // ============================================================
 
     private static ChatSession ToDto(ChatSessionEntity entity) => new()
     {
@@ -145,6 +117,7 @@ public class ChatHistoryService
     {
         var images = entity.GetImages();
         var files = entity.GetFiles();
+
         return new ChatHistoryMessage
         {
             Id = entity.Id,

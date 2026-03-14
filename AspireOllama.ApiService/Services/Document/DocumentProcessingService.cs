@@ -5,9 +5,13 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using DocumentFormat.OpenXml.Wordprocessing;
 using UglyToad.PdfPig;
 
-namespace AspireOllama.ApiService.Services;
+namespace AspireOllama.ApiService.Services.Document;
 
-public class DocumentProcessingService
+/// <summary>
+/// Extracts text content from various document formats (PDF, Word, Excel, PowerPoint, Text).
+/// Single responsibility: Convert uploaded documents into plain text for AI analysis.
+/// </summary>
+public class DocumentProcessingService : IDocumentProcessingService
 {
     private readonly ILogger<DocumentProcessingService> _logger;
 
@@ -16,12 +20,15 @@ public class DocumentProcessingService
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public string ExtractText(FileAttachment file)
     {
         try
         {
+            // Decode base64 data to bytes
             var bytes = Convert.FromBase64String(file.Base64Data);
 
+            // Route to appropriate extractor based on file type
             return file.Type switch
             {
                 FileType.Pdf => ExtractFromPdf(bytes),
@@ -39,6 +46,52 @@ public class DocumentProcessingService
         }
     }
 
+    /// <inheritdoc />
+    public FileType DetermineFileType(string contentType, string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+
+        // Try to determine type from MIME content type first (more reliable)
+        return contentType.ToLowerInvariant() switch
+        {
+            // PDF
+            "application/pdf" => FileType.Pdf,
+
+            // Microsoft Word (modern .docx and legacy .doc)
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => FileType.Word,
+            "application/msword" => FileType.Word,
+
+            // Microsoft Excel (modern .xlsx and legacy .xls)
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => FileType.Excel,
+            "application/vnd.ms-excel" => FileType.Excel,
+
+            // Microsoft PowerPoint (modern .pptx and legacy .ppt)
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation" => FileType.PowerPoint,
+            "application/vnd.ms-powerpoint" => FileType.PowerPoint,
+
+            // Text-based files
+            "text/plain" => FileType.Text,
+            "text/csv" => FileType.Text,
+            "text/markdown" => FileType.Text,
+            "application/json" => FileType.Text,
+            "application/xml" => FileType.Text,
+            "text/xml" => FileType.Text,
+
+            // Images (for vision model)
+            "image/jpeg" or "image/jpg" or "image/png" or "image/gif" or "image/webp" => FileType.Image,
+
+            // Fall back to extension-based detection
+            _ => DetermineByExtension(extension)
+        };
+    }
+
+    // ============================================================
+    // Private Extraction Methods
+    // ============================================================
+
+    /// <summary>
+    /// Extracts text from PDF files using PdfPig library.
+    /// </summary>
     private string ExtractFromPdf(byte[] bytes)
     {
         var sb = new StringBuilder();
@@ -54,6 +107,9 @@ public class DocumentProcessingService
         return sb.ToString().Trim();
     }
 
+    /// <summary>
+    /// Extracts text from Word documents (.docx) using OpenXml.
+    /// </summary>
     private string ExtractFromWord(byte[] bytes)
     {
         var sb = new StringBuilder();
@@ -73,6 +129,9 @@ public class DocumentProcessingService
         return sb.ToString().Trim();
     }
 
+    /// <summary>
+    /// Extracts text from Excel spreadsheets (.xlsx) using OpenXml.
+    /// </summary>
     private string ExtractFromExcel(byte[] bytes)
     {
         var sb = new StringBuilder();
@@ -81,16 +140,16 @@ public class DocumentProcessingService
         using var doc = SpreadsheetDocument.Open(stream, false);
 
         var workbookPart = doc.WorkbookPart;
-        if (workbookPart == null) return string.Empty;
+        if (workbookPart is null) return string.Empty;
 
         var sharedStrings = workbookPart.SharedStringTablePart?.SharedStringTable;
 
         foreach (var worksheetPart in workbookPart.WorksheetParts)
         {
             var sheet = worksheetPart.Worksheet;
-            var sheetData = sheet.GetFirstChild<SheetData>();
+            var sheetData = sheet?.GetFirstChild<SheetData>();
 
-            if (sheetData == null) continue;
+            if (sheetData is null) continue;
 
             foreach (var row in sheetData.Elements<Row>())
             {
@@ -111,9 +170,12 @@ public class DocumentProcessingService
         return sb.ToString().Trim();
     }
 
-    private string GetCellValue(Cell cell, SharedStringTable? sharedStrings)
+    /// <summary>
+    /// Resolves the actual cell value from Excel.
+    /// </summary>
+    private static string GetCellValue(Cell cell, SharedStringTable? sharedStrings)
     {
-        if (cell.CellValue == null) return string.Empty;
+        if (cell.CellValue is null) return string.Empty;
 
         var value = cell.CellValue.Text;
 
@@ -129,6 +191,9 @@ public class DocumentProcessingService
         return value;
     }
 
+    /// <summary>
+    /// Extracts text from PowerPoint presentations (.pptx) using OpenXml.
+    /// </summary>
     private string ExtractFromPowerPoint(byte[] bytes)
     {
         var sb = new StringBuilder();
@@ -137,16 +202,16 @@ public class DocumentProcessingService
         using var doc = PresentationDocument.Open(stream, false);
 
         var presentationPart = doc.PresentationPart;
-        if (presentationPart == null) return string.Empty;
+        if (presentationPart is null) return string.Empty;
 
-        var slideIds = presentationPart.Presentation.SlideIdList?.ChildElements;
-        if (slideIds == null) return string.Empty;
+        var slideIds = presentationPart.Presentation?.SlideIdList?.ChildElements;
+        if (slideIds is null) return string.Empty;
 
         int slideNumber = 1;
         foreach (var slideId in slideIds.OfType<DocumentFormat.OpenXml.Presentation.SlideId>())
         {
             var slidePart = (SlidePart?)presentationPart.GetPartById(slideId.RelationshipId!);
-            if (slidePart?.Slide == null) continue;
+            if (slidePart?.Slide is null) continue;
 
             sb.AppendLine($"--- Slide {slideNumber} ---");
 
@@ -166,36 +231,17 @@ public class DocumentProcessingService
         return sb.ToString().Trim();
     }
 
-    private string ExtractFromText(byte[] bytes)
+    /// <summary>
+    /// Extracts text from plain text files.
+    /// </summary>
+    private static string ExtractFromText(byte[] bytes)
     {
         return Encoding.UTF8.GetString(bytes);
     }
 
-    public static FileType DetermineFileType(string contentType, string fileName)
-    {
-        var extension = Path.GetExtension(fileName).ToLowerInvariant();
-
-        // Check by content type first
-        return contentType.ToLowerInvariant() switch
-        {
-            "application/pdf" => FileType.Pdf,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => FileType.Word,
-            "application/msword" => FileType.Word,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => FileType.Excel,
-            "application/vnd.ms-excel" => FileType.Excel,
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation" => FileType.PowerPoint,
-            "application/vnd.ms-powerpoint" => FileType.PowerPoint,
-            "text/plain" => FileType.Text,
-            "text/csv" => FileType.Text,
-            "text/markdown" => FileType.Text,
-            "application/json" => FileType.Text,
-            "application/xml" => FileType.Text,
-            "text/xml" => FileType.Text,
-            "image/jpeg" or "image/jpg" or "image/png" or "image/gif" or "image/webp" => FileType.Image,
-            _ => DetermineByExtension(extension)
-        };
-    }
-
+    /// <summary>
+    /// Determines file type based on file extension.
+    /// </summary>
     private static FileType DetermineByExtension(string extension)
     {
         return extension switch

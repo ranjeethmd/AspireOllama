@@ -27,8 +27,20 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            // Turn on resilience by default
-            http.AddStandardResilienceHandler();
+            // Turn on resilience by default with extended timeouts for AI models
+            http.AddStandardResilienceHandler(options =>
+            {
+                // Extended timeouts for AI processing (models can be slow)
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(10);
+                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(5);
+
+                // Minimal retries - AI requests are expensive
+                options.Retry.MaxRetryAttempts = 1;
+                options.Retry.Delay = TimeSpan.FromSeconds(1);
+
+                // Circuit breaker: sampling duration must be >= 2x attempt timeout
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(12);
+            });
 
             // Turn on service discovery by default
             http.AddServiceDiscovery();

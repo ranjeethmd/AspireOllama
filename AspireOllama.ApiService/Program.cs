@@ -1,230 +1,131 @@
 using AspireOllama.ApiService.Data;
-using AspireOllama.ApiService.Services;
-using AspireOllama.Shared;
+using AspireOllama.ApiService.Services.AI;
+using AspireOllama.ApiService.Services.Document;
+using AspireOllama.ApiService.Services.Message;
+using AspireOllama.ApiService.Services.Session;
+using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.AI;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure longer timeout for all HTTP clients (including Ollama)
+// ============================================================
+// Aspire Service Defaults
+// ============================================================
+
+// Add health checks, OpenTelemetry, and other Aspire integrations
+builder.AddServiceDefaults();
+
+// ============================================================
+// HTTP Client Configuration
+// ============================================================
+
+// Increase timeout for all HTTP clients including Ollama (AI models can be slow)
 builder.Services.ConfigureHttpClientDefaults(http =>
 {
     http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMinutes(10));
 });
 
-// Register as a standard ChatClient with the llama model
+// ============================================================
+// AI/Ollama Configuration
+// ============================================================
+
+// Register Ollama chat client using Microsoft.Extensions.AI abstraction
+// "llama" refers to the connection string name in AppHost (llava vision model)
 builder.AddOllamaApiClient("llama")
     .AddChatClient();
 
-// Add service defaults & Aspire client integrations.
-builder.AddServiceDefaults();
+// ============================================================
+// Database Configuration (SQLite)
+// ============================================================
 
-// Add SQLite database
+// SQLite database file stored in application content root
 var dbPath = Path.Combine(builder.Environment.ContentRootPath, "chat.db");
 builder.Services.AddDbContext<ChatDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}"));
 
-// Add chat history service
-builder.Services.AddScoped<ChatHistoryService>();
+// ============================================================
+// Application Services (Single Responsibility)
+// ============================================================
 
-// Add document processing service
-builder.Services.AddScoped<DocumentProcessingService>();
+// Session management service
+builder.Services.AddScoped<ISessionService, SessionService>();
 
-// Add services to the container.
+// Chat message service
+builder.Services.AddScoped<IChatMessageService, ChatMessageService>();
+
+// AI chat service (context building and model calls)
+builder.Services.AddScoped<IAiChatService, AiChatService>();
+
+// Document text extraction service (PDF, Word, Excel, PowerPoint)
+builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
+
+// ============================================================
+// API Configuration
+// ============================================================
+
+// FastEndpoints for structured API endpoint handling
+builder.Services.AddFastEndpoints();
+
+// Problem details for standardized error responses
 builder.Services.AddProblemDetails();
 
-// Increase request body size limit for image uploads (50MB)
+// Increase request body size for file uploads (50MB max)
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 50 * 1024 * 1024;
 });
 
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// OpenAPI/Swagger documentation
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Ensure database is created
+// ============================================================
+// Database Initialization
+// ============================================================
+
+// Ensure database and tables exist, apply migrations
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
     db.Database.EnsureCreated();
+
+    // Manual migration: Add FilesJson column for document attachment storage
+    // Required for databases created before document support was added
+    try
+    {
+        db.Database.ExecuteSqlRaw(
+            "ALTER TABLE ChatMessages ADD COLUMN FilesJson TEXT DEFAULT '[]'");
+    }
+    catch (Microsoft.Data.Sqlite.SqliteException)
+    {
+        // Column already exists - this is expected for newer databases
+    }
 }
 
-// Configure the HTTP request pipeline.
+// ============================================================
+// HTTP Pipeline Configuration
+// ============================================================
+
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
-    app.MapOpenApi();
+    app.MapOpenApi(); // Generate OpenAPI docs at /openapi.json 
+    app.MapScalarApiReference(); // Mounts the UI at /scalar/v1
 }
 else
 {
     app.UseExceptionHandler();
 }
 
-app.MapGet("/", () => "API service is running. Navigate to /chat with AI.");
+// Map FastEndpoints routes (/chat, /sessions, etc.)
+app.UseFastEndpoints();
 
-// Test endpoint to verify Ollama is working
-app.MapGet("/test-ollama", async (IChatClient chatClient, ILogger<Program> logger) =>
-{
-    try
-    {
-        logger.LogInformation("Testing Ollama connection...");
-        var response = await chatClient.GetResponseAsync("Say hello in one word");
-        return Results.Ok(new { success = true, response = response.Text });
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Ollama test failed");
-        return Results.Ok(new { success = false, error = ex.Message });
-    }
-});
+// Health check and root endpoint
+app.MapGet("/", () => "API service is running. Use /test-ollama to verify Ollama connection.");
 
-// Session management endpoints
-app.MapPost("/sessions", async (ChatHistoryService historyService) =>
-{
-    var session = await historyService.CreateSessionAsync();
-    return Results.Ok(session);
-})
-.WithName("CreateSession");
-
-app.MapGet("/sessions", async (ChatHistoryService historyService) =>
-{
-    var sessions = await historyService.GetSessionsAsync();
-    return Results.Ok(sessions);
-})
-.WithName("GetSessions");
-
-app.MapGet("/sessions/{id}", async (string id, ChatHistoryService historyService) =>
-{
-    var session = await historyService.GetSessionWithMessagesAsync(id);
-    if (session == null)
-        return Results.NotFound();
-    return Results.Ok(session);
-})
-.WithName("GetSession");
-
-app.MapDelete("/sessions/{id}", async (string id, ChatHistoryService historyService) =>
-{
-    var deleted = await historyService.DeleteSessionAsync(id);
-    if (!deleted)
-        return Results.NotFound();
-    return Results.NoContent();
-})
-.WithName("DeleteSession");
-
-// Chat endpoint with multimodal support
-app.MapPost("/chat", async (IChatClient chatClient, ChatHistoryService historyService, DocumentProcessingService docService, ChatMessageRequest request, ILogger<Program> logger) =>
-{
-    try
-    {
-        logger.LogInformation("Chat request received for session {SessionId}", request.SessionId);
-
-        // Get conversation history for context
-        var history = await historyService.GetMessagesAsync(request.SessionId);
-
-        // Build conversation messages
-        var messages = new List<ChatMessage>();
-
-        // Add history
-        foreach (var msg in history)
-        {
-            var role = msg.Role == "user" ? ChatRole.User : ChatRole.Assistant;
-            messages.Add(new ChatMessage(role, msg.Content));
-        }
-
-        // Build current message with potential images and documents
-        var contentParts = new List<AIContent>();
-
-        // Add images first if present
-        if (request.Images != null && request.Images.Count > 0)
-        {
-            logger.LogInformation("Processing {Count} images", request.Images.Count);
-            foreach (var image in request.Images)
-            {
-                var imageBytes = Convert.FromBase64String(image.Base64Data);
-                // Use explicit media type for better compatibility
-                var mediaType = image.ContentType switch
-                {
-                    "image/jpeg" or "image/jpg" => "image/jpeg",
-                    "image/png" => "image/png",
-                    "image/gif" => "image/gif",
-                    "image/webp" => "image/webp",
-                    _ => "image/jpeg" // Default to JPEG
-                };
-                logger.LogInformation("Adding image: {FileName}, MediaType: {MediaType}, Size: {Size} bytes",
-                    image.FileName, mediaType, imageBytes.Length);
-                contentParts.Add(new DataContent(imageBytes, mediaType));
-            }
-        }
-
-        // Process documents and extract text
-        var documentTexts = new List<string>();
-        if (request.Files != null && request.Files.Count > 0)
-        {
-            logger.LogInformation("Processing {Count} documents", request.Files.Count);
-            foreach (var file in request.Files)
-            {
-                logger.LogInformation("Extracting text from: {FileName}, Type: {Type}", file.FileName, file.Type);
-                var extractedText = docService.ExtractText(file);
-                if (!string.IsNullOrWhiteSpace(extractedText))
-                {
-                    documentTexts.Add($"--- Content from {file.FileName} ---\n{extractedText}\n--- End of {file.FileName} ---");
-                }
-            }
-        }
-
-        // Build the text content with document context
-        var textContent = request.Content ?? "";
-        if (documentTexts.Count > 0)
-        {
-            var documentContext = string.Join("\n\n", documentTexts);
-            textContent = string.IsNullOrWhiteSpace(textContent)
-                ? $"Please analyze the following document(s):\n\n{documentContext}"
-                : $"{textContent}\n\nDocument content:\n\n{documentContext}";
-        }
-        else if (string.IsNullOrWhiteSpace(textContent) && request.Images?.Count > 0)
-        {
-            textContent = "Describe this image";
-        }
-
-        contentParts.Add(new TextContent(textContent));
-
-        var userMessage = new ChatMessage(ChatRole.User, contentParts);
-        messages.Add(userMessage);
-
-        // Save user message to history (save original content, not the expanded version)
-        await historyService.AddMessageAsync(request.SessionId, "user", request.Content ?? "", request.Images, request.Files);
-
-        logger.LogInformation("Calling Ollama with {MessageCount} messages", messages.Count);
-
-        // Get AI response
-        var response = await chatClient.GetResponseAsync(messages);
-        var responseText = response.Text ?? string.Empty;
-
-        logger.LogInformation("Received response from Ollama");
-
-        // Save assistant response to history
-        await historyService.AddMessageAsync(request.SessionId, "assistant", responseText);
-
-        return Results.Ok(new ChatMessageResponse
-        {
-            SessionId = request.SessionId,
-            Response = responseText
-        });
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Error processing chat request");
-        return Results.Problem(
-            detail: ex.Message,
-            statusCode: 500,
-            title: "Chat Error"
-        );
-    }
-})
-.WithName("Chat");
-
+// Aspire health check endpoints
 app.MapDefaultEndpoints();
 
 app.Run();

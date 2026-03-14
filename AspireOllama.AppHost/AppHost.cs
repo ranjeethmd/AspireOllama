@@ -7,6 +7,7 @@ var ollama = builder.AddOllama("ollama")
 var llama = ollama.AddModel("llama", "llava");
 
 var apiService = builder.AddProject<Projects.AspireOllama_ApiService>("apiservice")
+    .WithUrl("/scalar/v1")
     .WithReference(llama)
     .WaitFor(llama)
     .WithHttpHealthCheck("/health");

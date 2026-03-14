@@ -19,7 +19,9 @@
       "Bash(cmd //c \"tasklist | findstr Aspire\")",
       "Bash(cmd //c \"tasklist | findstr ollama\")",
       "Bash(cmd //c \"taskkill /F /IM AspireOllama.AppHost.exe 2>nul & taskkill /F /IM AspireOllama.ApiService.exe 2>nul & taskkill /F /IM AspireOllama.Web.exe 2>nul & exit /b 0\")",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(del \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\AspireOllama.ApiService\\\\Services\\\\DocumentProcessingService.cs\")",
+      "Bash(powershell:*)"
     ]
   }
 }
