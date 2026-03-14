@@ -4,14 +4,24 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 
 ## Features
 
+- **Modern Agentic UI** - Dark-themed interface with bot avatars, animated thinking indicators, and smooth transitions
 - **Vision-Enabled AI Chat** - Upload images and get AI-powered analysis using the llava vision model
 - **Document Analysis** - Upload and analyze PDF, Word, Excel, PowerPoint, and text files
 - **Persistent Chat History** - SQLite-backed session storage with full conversation history
-- **Session Management** - Create, switch, and delete chat sessions
+- **Session Management** - Create, switch, and delete chat sessions with visual status indicators
 - **Multi-File Upload** - Support for images and documents (max 10 files, 20MB each)
 - **Local LLM Inference** - Runs entirely on your machine using Ollama with GPU acceleration
 - **Cloud-Native Architecture** - Built on .NET Aspire with automatic service discovery and health checks
 - **Open WebUI** - Includes Ollama's Open WebUI for direct model interaction
+
+## UI Features
+
+- **Dark Theme** - Modern dark gradient background with purple/blue accents
+- **Agent Branding** - Bot icon avatars and "AI Agent" branding throughout
+- **Animated States** - Pulsing status indicator, spinning loader, and fade-in message animations
+- **Welcome Screen** - Capability highlights when starting a new conversation
+- **Glass Morphism** - Frosted glass effects on sidebar and input areas
+- **Responsive Design** - Sidebar with session history and full-width chat area
 
 ## Architecture
 
@@ -28,7 +38,7 @@ AspireOllama/
 |---------|-------------|
 | `AspireOllama.AppHost` | .NET Aspire orchestrator - manages Ollama, API, and Web services |
 | `AspireOllama.ApiService` | Backend API with chat endpoints, session management, and SQLite persistence |
-| `AspireOllama.Web` | Blazor Server frontend with interactive chat UI and image upload |
+| `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI and file upload |
 | `AspireOllama.Shared` | Shared DTOs for API communication |
 | `AspireOllama.ServiceDefaults` | Common service configuration and health checks |
 
