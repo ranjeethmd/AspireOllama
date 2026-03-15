@@ -29,12 +29,12 @@ AspireOllama is a distributed AI chat application with the following key capabil
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐    │
-│   │   Vision    │   │    Tool     │   │    MCP      │   │  Document   │    │
-│   │   Chat      │   │   Calling   │   │ Integration │   │  Analysis   │    │
+│   │   Vision    │   │  Built-in   │   │    MCP      │   │  Document   │    │
+│   │   Chat      │   │   Tools     │   │   Tools     │   │  Analysis   │    │
 │   │             │   │             │   │             │   │             │    │
-│   │  Analyze    │   │ Calculator  │   │  External   │   │    PDF      │    │
-│   │  images     │   │  Weather    │   │   tools     │   │   Word      │    │
-│   │  with AI    │   │   Time      │   │   server    │   │   Excel     │    │
+│   │  Analyze    │   │ Calculator  │   │  Weather    │   │    PDF      │    │
+│   │  images     │   │             │   │  Time       │   │   Word      │    │
+│   │  with AI    │   │             │   │  Convert    │   │   Excel     │    │
 │   └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘    │
 │                                                                             │
 │   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐    │
@@ -75,7 +75,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
 │                   │       │                   │       │                   │
 │   ┌───────────┐   │       │   ┌───────────┐   │       │   ┌───────────┐   │
 │   │  Chat UI  │   │       │   │   Tools   │   │       │   │  Weather  │   │
-│   │  Session  │   │       │   │  Registry │   │       │   │   Time    │   │
+│   │  Session  │   │       │   │  Registry │   │       │   │Time/Conv  │   │
 │   └───────────┘   │       │   └───────────┘   │       │   └───────────┘   │
 │                   │       │                   │       │                   │
 └───────────────────┘       │   ┌───────────┐   │       └───────────────────┘
@@ -122,9 +122,9 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │  AspireOllama   │     │  AspireOllama   │     │  AspireOllama   │
     │     .Web        │────▶│   .ApiService   │◀───▶│   .McpServer    │
     │                 │     │                 │     │                 │
-    │  Blazor UI      │     │  REST + Tools   │     │  MCP Tools      │
-    │  Chat Interface │     │  AI Integration │     │  Weather/Time   │
-    │                 │     │  Persistence    │     │                 │
+    │  Blazor UI      │     │  REST + MCP     │     │  MCP Tools      │
+    │  Chat Interface │     │  Client         │     │  Weather/Time/  │
+    │                 │     │  Persistence    │     │  Convert        │
     └─────────────────┘     └─────────────────┘     └─────────────────┘
             │                       │                       │
             │                       │                       │
@@ -361,9 +361,9 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │    ┌─────────────────────────────────────────────────────────────┐   │
     │    │                      MCP Tools                              │   │
     │    │                                                             │   │
-    │    │   ┌────────────┐  ┌────────────┐                           │   │
-    │    │   │get_weather │  │  get_time  │                           │   │
-    │    │   └────────────┘  └────────────┘                           │   │
+    │    │   ┌────────────┐  ┌────────────┐  ┌──────────────┐         │   │
+    │    │   │get_weather │  │  get_time  │  │convert_units │         │   │
+    │    │   └────────────┘  └────────────┘  └──────────────┘         │   │
     │    │                                                             │   │
     │    └─────────────────────────────────────────────────────────────┘   │
     │                                                                      │
@@ -500,6 +500,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │   └───────────────┘                    │               │          │
     │         │                              │ - get_weather │          │
     │         │                              │ - get_time    │          │
+    │         │                              │ - convert_units          │
     │         ▼                              └───────────────┘          │
     │   ┌───────────────┐                                               │
     │   │ Store tools   │                                               │
@@ -552,20 +553,16 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │    │                                                             │  │
     │    └──────────────────────────┬──────────────────────────────────┘  │
     │                               │                                     │
-    │              ┌────────────────┴────────────────┐                   │
-    │              │                                 │                   │
-    │              ▼                                 ▼                   │
-    │    ┌─────────────────┐               ┌─────────────────┐          │
-    │    │   WeatherTool   │               │    TimeTool     │          │
-    │    │                 │               │                 │          │
-    │    │  get_weather()  │               │   get_time()    │          │
-    │    │                 │               │                 │          │
-    │    │  Returns mock   │               │  Returns time   │          │
-    │    │  weather data   │               │  in timezone    │          │
-    │    │                 │               │                 │          │
-    │    └─────────────────┘               └─────────────────┘          │
-    │              │                                 │                   │
-    │              └────────────────┬────────────────┘                   │
+    │         ┌──────────────────────┼──────────────────────┐            │
+    │         │                      │                      │            │
+    │         ▼                      ▼                      ▼            │
+    │    ┌───────────┐         ┌───────────┐         ┌─────────────┐    │
+    │    │WeatherTool│         │ TimeTool  │         │ConvertTool  │    │
+    │    │           │         │           │         │             │    │
+    │    │get_weather│         │ get_time  │         │convert_units│    │
+    │    └───────────┘         └───────────┘         └─────────────┘    │
+    │         │                      │                      │            │
+    │         └──────────────────────┼──────────────────────┘            │
     │                               │                                     │
     │                               ▼                                     │
     │    ┌─────────────────────────────────────────────────────────────┐  │
@@ -787,13 +784,13 @@ AspireOllama is a distributed AI chat application with the following key capabil
       │  Tool  ││  Tool  ││  Tool  │     │  Tool  │   │ Server │
       └────────┘└────────┘└────────┘     └────────┘   └────────┘
                                                            │
-                                                    ┌──────┴──────┐
-                                                    │             │
-                                                    ▼             ▼
-                                               ┌────────┐   ┌────────┐
-                                               │Weather │   │  Time  │
-                                               │  Tool  │   │  Tool  │
-                                               └────────┘   └────────┘
+                                              ┌────────────┼────────────┐
+                                              │            │            │
+                                              ▼            ▼            ▼
+                                         ┌────────┐  ┌────────┐  ┌────────┐
+                                         │Weather │  │  Time  │  │Convert │
+                                         │  Tool  │  │  Tool  │  │  Tool  │
+                                         └────────┘  └────────┘  └────────┘
 ```
 
 ---

@@ -9,22 +9,6 @@ namespace AspireOllama.Web;
 /// <param name="httpClient">Configured HttpClient with base URL pointing to API service</param>
 public class ChatApiClient(HttpClient httpClient)
 {
-    /// <summary>
-    /// Sends a simple text message (legacy method).
-    /// </summary>
-    [Obsolete("Use SendMessageAsync(ChatMessageRequest) for full functionality")]
-    public async Task<string> SendMessageAsync(string message, CancellationToken cancellationToken = default)
-    {
-        var response = await httpClient.PostAsJsonAsync("/chat", message, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Sends a chat message with optional images and document attachments.
-    /// </summary>
-    /// <param name="request">Request containing session ID, text, images, and files</param>
-    /// <returns>AI response with session ID</returns>
     public async Task<ChatMessageResponse> SendMessageAsync(ChatMessageRequest request, CancellationToken cancellationToken = default)
     {
         var response = await httpClient.PostAsJsonAsync("/chat", request, cancellationToken);

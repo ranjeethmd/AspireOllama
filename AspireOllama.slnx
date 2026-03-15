@@ -3,5 +3,6 @@
   <Project Path="AspireOllama.AppHost/AspireOllama.AppHost.csproj" />
   <Project Path="AspireOllama.McpServer/AspireOllama.McpServer.csproj" />
   <Project Path="AspireOllama.ServiceDefaults/AspireOllama.ServiceDefaults.csproj" />
+  <Project Path="AspireOllama.Shared/AspireOllama.Shared.csproj" />
   <Project Path="AspireOllama.Web/AspireOllama.Web.csproj" />
 </Solution>

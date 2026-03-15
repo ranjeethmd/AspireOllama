@@ -8,7 +8,6 @@ using AspireOllama.ApiService.Services.Tools;
 using AspireOllama.Shared;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
-using ModelContextProtocol.AspNetCore;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -99,23 +98,6 @@ builder.Services.AddSingleton<IToolRegistry, ToolRegistry>();
 builder.Services.AddSingleton<IMcpService, McpService>();
 
 // ============================================================
-// MCP Server Configuration (HTTP Transport)
-// ============================================================
-
-// Register MCP server with HTTP transport - exposes tools via /mcp endpoint
-builder.Services
-    .AddMcpServer(options =>
-    {
-        options.ServerInfo = new()
-        {
-            Name = "AspireOllama MCP Server",
-            Version = "1.0.0"
-        };
-    })
-    .WithHttpTransport()
-    .WithToolsFromAssembly();  // Auto-discovers [McpServerToolType] classes
-
-// ============================================================
 // API Configuration
 // ============================================================
 
@@ -201,12 +183,7 @@ else
 // Map FastEndpoints routes (/chat, /sessions, etc.)
 app.UseFastEndpoints();
 
-// Health check and root endpoint
-app.MapGet("/", () => "API service is running. Use /test-ollama to verify Ollama connection, or /mcp for MCP tools.");
-
-// Map MCP server endpoints (HTTP transport)
-// Exposes calculator, time, weather, and conversion tools via MCP protocol
-app.MapMcp("/mcp");
+app.MapGet("/", () => "API service is running.");
 
 // Aspire health check endpoints
 app.MapDefaultEndpoints();

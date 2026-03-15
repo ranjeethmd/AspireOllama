@@ -42,7 +42,7 @@ AspireOllama/
 |---------|-------------|
 | `AspireOllama.AppHost` | .NET Aspire orchestrator - manages Ollama, MCP Server, API, and Web services |
 | `AspireOllama.ApiService` | Backend API with chat endpoints, tool calling, MCP client, and SQLite persistence |
-| `AspireOllama.McpServer` | HTTP-based MCP server exposing weather and time tools |
+| `AspireOllama.McpServer` | HTTP-based MCP server exposing weather, time, and conversion tools |
 | `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI and file upload |
 | `AspireOllama.Shared` | Shared DTOs for API communication including tool call models |
 | `AspireOllama.ServiceDefaults` | Common service configuration and health checks |
@@ -112,12 +112,14 @@ The external MCP server provides additional tools:
 |------|-------------|
 | `get_weather` | Get weather for a city (demo data) |
 | `get_time` | Get current time in a timezone |
+| `convert_units` | Convert between units (km/miles, kg/lbs, celsius/fahrenheit) |
 
 ### Example Queries
 
-- "What is 15 * 7 + 23?" → Uses calculator tool
+- "What is 15 * 7 + 23?" → Uses built-in calculator tool
 - "What's the weather in London?" → Uses MCP get_weather tool
 - "What time is it in Tokyo?" → Uses MCP get_time tool
+- "Convert 100 km to miles" → Uses MCP convert_units tool
 
 ### Tool Configuration
 
@@ -146,7 +148,6 @@ Configure built-in tools in `appsettings.json`:
 | `DELETE` | `/sessions/{id}` | Delete a chat session |
 | `GET` | `/debug/mcp` | Debug MCP connection status |
 | `GET` | `/test-ollama` | Test Ollama connection |
-| `POST` | `/mcp` | MCP protocol endpoint |
 
 ## Supported File Formats
 
@@ -185,35 +186,64 @@ The SQLite database is automatically created at `AspireOllama.ApiService/chat.db
 
 ```
 AspireOllama.ApiService/
-├── Program.cs                    # API configuration and startup
+├── Program.cs
 ├── Data/
-│   └── ChatDbContext.cs          # EF Core context and entities
+│   └── ChatDbContext.cs
 ├── Endpoints/
-│   ├── ChatEndpoint.cs           # POST /chat handler
-│   ├── CreateSessionEndpoint.cs  # Session CRUD endpoints
-│   └── McpDebugEndpoint.cs       # MCP diagnostics
+│   ├── ChatEndpoint.cs
+│   ├── CreateSessionEndpoint.cs
+│   ├── GetSessionsEndpoint.cs
+│   ├── GetSessionEndpoint.cs
+│   ├── DeleteSessionEndpoint.cs
+│   ├── TestOllamaEndpoint.cs
+│   └── McpDebugEndpoint.cs
 └── Services/
     ├── AI/
-    │   ├── IAiChatService.cs     # AI service interface
-    │   └── AiChatService.cs      # Chat + tool orchestration
+    │   ├── IAiChatService.cs
+    │   ├── AiChatService.cs
+    │   └── AiChatResult.cs
     ├── Session/
-    │   └── SessionService.cs     # Session management
+    │   ├── ISessionService.cs
+    │   └── SessionService.cs
     ├── Message/
-    │   └── ChatMessageService.cs # Message persistence
+    │   ├── IChatMessageService.cs
+    │   └── ChatMessageService.cs
     ├── Document/
-    │   └── DocumentProcessingService.cs  # Text extraction
+    │   ├── IDocumentProcessingService.cs
+    │   └── DocumentProcessingService.cs
     ├── Tools/
-    │   ├── IToolRegistry.cs      # Tool collection interface
-    │   ├── ToolRegistry.cs       # Built-in tool registry
-    │   ├── CalculatorTool.cs     # Math evaluation
-    │   └── ...                   # Other tools
+    │   ├── ITool.cs
+    │   ├── IToolRegistry.cs
+    │   ├── ToolRegistry.cs
+    │   ├── CalculatorTool.cs
+    │   ├── WebSearchTool.cs
+    │   ├── CodeExecutionTool.cs
+    │   └── FileOperationsTool.cs
     └── Mcp/
-        ├── IMcpService.cs        # MCP client interface
-        └── McpService.cs         # MCP server connection
+        ├── IMcpService.cs
+        └── McpService.cs
 
 AspireOllama.McpServer/
-├── Program.cs                    # MCP server with HTTP transport
-└── Tools (via attributes)        # WeatherTool, TimeTool
+└── Program.cs                    # MCP tools: get_weather, get_time, convert_units
+
+AspireOllama.Web/
+├── Program.cs
+├── ChatApiClient.cs
+└── Components/Pages/Chat.razor
+
+AspireOllama.Shared/
+├── ChatSession.cs
+├── ChatSessionDetails.cs
+├── ChatHistoryMessage.cs
+├── ChatMessageRequest.cs
+├── ChatMessageResponse.cs
+├── ImageAttachment.cs
+├── FileAttachment.cs
+├── ToolCall.cs
+└── ToolConfiguration.cs
+
+AspireOllama.AppHost/
+└── AppHost.cs                    # Aspire orchestration
 ```
 
 ## Troubleshooting
