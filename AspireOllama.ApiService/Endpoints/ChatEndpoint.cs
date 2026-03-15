@@ -56,15 +56,15 @@ public class ChatEndpoint : Endpoint<ChatMessageRequest, ChatMessageResponse>
             var history = await _messageService.GetBySessionIdAsync(req.SessionId);
             _logger.LogInformation("Loaded {Count} messages from history", history.Count);
 
-            // Get AI response
-            var responseText = await _aiService.GetResponseAsync(req, history, ct);
+            // Get AI response with tool support
+            var result = await _aiService.GetResponseWithToolsAsync(req, history, ct);
 
             // Build content for history storage (includes attachment metadata)
             var historyContent = BuildHistoryContent(req);
 
             // Save user message and AI response
             await _messageService.AddAsync(req.SessionId, "user", historyContent, req.Images, req.Files);
-            await _messageService.AddAsync(req.SessionId, "assistant", responseText);
+            await _messageService.AddAsync(req.SessionId, "assistant", result.Response);
 
             // Update session title if this is the first message
             await UpdateSessionTitleIfFirstMessage(req);
@@ -72,10 +72,13 @@ public class ChatEndpoint : Endpoint<ChatMessageRequest, ChatMessageResponse>
             // Update session timestamp
             await _sessionService.TouchAsync(req.SessionId);
 
+            _logger.LogInformation("Chat response complete, {ToolCount} tool calls made", result.ToolCalls.Count);
+
             await Send.OkAsync(new ChatMessageResponse
             {
                 SessionId = req.SessionId,
-                Response = responseText
+                Response = result.Response,
+                ToolCalls = result.ToolCalls
             }, ct);
         }
         catch (Exception ex)

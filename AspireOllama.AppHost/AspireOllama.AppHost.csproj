@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AspireOllama.ApiService\AspireOllama.ApiService.csproj" />
+    <ProjectReference Include="..\AspireOllama.McpServer\AspireOllama.McpServer.csproj" />
     <ProjectReference Include="..\AspireOllama.Web\AspireOllama.Web.csproj" />
   </ItemGroup>
 

@@ -1,10 +1,14 @@
 using AspireOllama.ApiService.Data;
 using AspireOllama.ApiService.Services.AI;
 using AspireOllama.ApiService.Services.Document;
+using AspireOllama.ApiService.Services.Mcp;
 using AspireOllama.ApiService.Services.Message;
 using AspireOllama.ApiService.Services.Session;
+using AspireOllama.ApiService.Services.Tools;
+using AspireOllama.Shared;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol.AspNetCore;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,10 +34,13 @@ builder.Services.ConfigureHttpClientDefaults(http =>
 // AI/Ollama Configuration
 // ============================================================
 
-// Register Ollama chat client using Microsoft.Extensions.AI abstraction
-// "llama" refers to the connection string name in AppHost (llava vision model)
+// Register Ollama chat clients using Microsoft.Extensions.AI abstraction
+// Two models: llava for vision, llama3.1 for tool calling
+builder.AddOllamaApiClient("llava")
+    .AddKeyedChatClient("vision");  // Vision model for image understanding
+
 builder.AddOllamaApiClient("llama")
-    .AddChatClient();
+    .AddKeyedChatClient("tools");   // Tool-calling model for function calling
 
 // ============================================================
 // Database Configuration (SQLite)
@@ -59,6 +66,54 @@ builder.Services.AddScoped<IAiChatService, AiChatService>();
 
 // Document text extraction service (PDF, Word, Excel, PowerPoint)
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
+
+// ============================================================
+// Tool Calling Configuration
+// ============================================================
+
+// Bind tool configuration from appsettings.json
+builder.Services.Configure<ToolConfiguration>(
+    builder.Configuration.GetSection("Tools"));
+
+// HTTP client factory for web search tool
+builder.Services.AddHttpClient();
+
+// Named HttpClient for MCP server - uses Aspire service discovery
+builder.Services.AddHttpClient("mcpserver", client =>
+{
+    // Base address will be configured by Aspire service discovery
+    // The name "mcpserver" matches the resource name in AppHost
+    client.BaseAddress = new Uri("http://mcpserver");
+});
+
+// Built-in tools
+builder.Services.AddSingleton<CalculatorTool>();
+builder.Services.AddSingleton<WebSearchTool>();
+builder.Services.AddSingleton<CodeExecutionTool>();
+builder.Services.AddSingleton<FileOperationsTool>();
+
+// Tool registry (collects all tools)
+builder.Services.AddSingleton<IToolRegistry, ToolRegistry>();
+
+// MCP service (connects to external MCP servers as client)
+builder.Services.AddSingleton<IMcpService, McpService>();
+
+// ============================================================
+// MCP Server Configuration (HTTP Transport)
+// ============================================================
+
+// Register MCP server with HTTP transport - exposes tools via /mcp endpoint
+builder.Services
+    .AddMcpServer(options =>
+    {
+        options.ServerInfo = new()
+        {
+            Name = "AspireOllama MCP Server",
+            Version = "1.0.0"
+        };
+    })
+    .WithHttpTransport()
+    .WithToolsFromAssembly();  // Auto-discovers [McpServerToolType] classes
 
 // ============================================================
 // API Configuration
@@ -105,6 +160,30 @@ using (var scope = app.Services.CreateScope())
 }
 
 // ============================================================
+// MCP Client Initialization
+// ============================================================
+
+// Initialize MCP service to connect to external MCP servers at startup
+// This helps surface connection errors early
+using (var scope = app.Services.CreateScope())
+{
+    var mcpService = scope.ServiceProvider.GetRequiredService<IMcpService>();
+    try
+    {
+        await mcpService.InitializeAsync();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        var servers = mcpService.GetConnectedServers();
+        logger.LogInformation("MCP initialized with {Count} connected servers: {Servers}",
+            servers.Count, string.Join(", ", servers));
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Failed to initialize MCP service");
+    }
+}
+
+// ============================================================
 // HTTP Pipeline Configuration
 // ============================================================
 
@@ -123,7 +202,11 @@ else
 app.UseFastEndpoints();
 
 // Health check and root endpoint
-app.MapGet("/", () => "API service is running. Use /test-ollama to verify Ollama connection.");
+app.MapGet("/", () => "API service is running. Use /test-ollama to verify Ollama connection, or /mcp for MCP tools.");
+
+// Map MCP server endpoints (HTTP transport)
+// Exposes calculator, time, weather, and conversion tools via MCP protocol
+app.MapMcp("/mcp");
 
 // Aspire health check endpoints
 app.MapDefaultEndpoints();

@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AspireOllama.ApiService.Endpoints;
 
@@ -15,7 +16,9 @@ public class TestOllamaEndpoint : EndpointWithoutRequest<TestOllamaResponse>
     private readonly IChatClient _chatClient;
     private readonly ILogger<TestOllamaEndpoint> _logger;
 
-    public TestOllamaEndpoint(IChatClient chatClient, ILogger<TestOllamaEndpoint> logger)
+    public TestOllamaEndpoint(
+        [FromKeyedServices("tools")] IChatClient chatClient,
+        ILogger<TestOllamaEndpoint> logger)
     {
         _chatClient = chatClient;
         _logger = logger;
