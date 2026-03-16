@@ -30,7 +30,10 @@
       "Bash(Write-Output \"Cleaned\")",
       "WebFetch(domain:a2a-protocol.org)",
       "WebFetch(domain:github.com)",
-      "Bash(del \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.PlannerAgent\\\\PlannerTools.cs\")"
+      "Bash(del \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.PlannerAgent\\\\PlannerTools.cs\")",
+      "Bash(taskkill:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
     ]
   }
 }

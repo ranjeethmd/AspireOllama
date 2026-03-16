@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.1.1" />
+    <PackageReference Include="Aspire.Hosting.Yarp" Version="13.1.2" />
+    <PackageReference Include="Scalar.Aspire" Version="0.9.9" />
   </ItemGroup>
 
 </Project>

@@ -1,46 +1,51 @@
 using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Text.Json;
 using AspireOllama.Shared;
-using ModelContextProtocol.Client;
 
 namespace AspireOllama.ApiService.Services.A2A;
 
 public class A2AService(
     IHttpClientFactory httpClientFactory,
-    ILogger<A2AService> logger) : IA2AService, IAsyncDisposable
+    ILogger<A2AService> logger) : IA2AService
 {
-    private static readonly Dictionary<string, string> AgentEndpoints = new()
+    private static readonly Dictionary<string, string> AgentNames = new()
     {
-        ["planner"] = "planner-agent",
-        ["reviewer"] = "reviewer-agent",
-        ["research"] = "research-agent",
-        ["code"] = "code-agent"
+        ["planner"] = "planner",
+        ["reviewer"] = "reviewer",
+        ["research"] = "research",
+        ["code"] = "code"
     };
 
-    private readonly Dictionary<string, McpClient?> _clients = [];
-    private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
 
     public async Task<List<AgentInfo>> GetAgentsAsync(CancellationToken ct = default)
     {
         var agents = new List<AgentInfo>();
 
-        foreach (var (name, serviceName) in AgentEndpoints)
+        foreach (var (name, _) in AgentNames)
         {
             try
             {
-                var client = await GetOrCreateClientAsync(name, ct);
-                if (client is not null)
+                var client = httpClientFactory.CreateClient(name);
+                var response = await client.GetAsync("/.well-known/agent.json", ct);
+
+                if (response.IsSuccessStatusCode)
                 {
-                    var tools = await client.ListToolsAsync();
+                    var card = await response.Content.ReadFromJsonAsync<AgentCard>(_jsonOptions, ct);
                     agents.Add(new AgentInfo
                     {
                         Name = name,
                         Status = "connected",
-                        Tools = tools.Select(t => new AgentTool
+                        Tools = card?.Skills?.Select(s => new AgentTool
                         {
-                            Name = t.Name,
-                            Description = t.Description ?? ""
-                        }).ToList()
+                            Name = s.Id ?? "",
+                            Description = s.Description ?? ""
+                        }).ToList() ?? []
                     });
                 }
                 else
@@ -74,42 +79,53 @@ public class A2AService(
 
         try
         {
-            var client = await GetOrCreateClientAsync(request.AgentName, ct);
-            if (client == null)
+            // Build the message text that triggers the skill
+            var messageText = BuildMessageForTool(request.ToolName, request.Arguments);
+
+            var a2aRequest = new A2AMessageRequest
             {
-                return new AgentCallResponse
+                Message = new A2AMessage
                 {
-                    AgentName = request.AgentName,
-                    ToolName = request.ToolName,
-                    Success = false,
-                    Error = $"Agent '{request.AgentName}' not available"
-                };
-            }
+                    Role = "user",
+                    Parts = [new A2APart { Text = messageText }]
+                }
+            };
 
-            var result = await client.CallToolAsync(
-                request.ToolName,
-                request.Arguments,
-                cancellationToken: ct);
+            var client = httpClientFactory.CreateClient(request.AgentName);
+            logger.LogInformation("Sending A2A message to {Agent} for skill {Skill}", request.AgentName, request.ToolName);
 
+            var response = await client.PostAsJsonAsync("/a2a/message:send", a2aRequest, _jsonOptions, ct);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<A2AMessageResponse>(_jsonOptions, ct);
             sw.Stop();
 
-            // Extract text content from result - use ToString for ContentBlock
-            var textContent = result.Content
-                .Select(c => c.ToString())
-                .FirstOrDefault();
-
-            object? parsedResult = textContent;
-
-            // Try to parse as JSON
-            if (!string.IsNullOrEmpty(textContent))
+            // Extract result from task artifacts
+            object? parsedResult = null;
+            if (result?.Task?.Artifacts?.Count > 0)
             {
-                try
+                var artifact = result.Task.Artifacts[0];
+                if (artifact.Parts?.Count > 0)
                 {
-                    parsedResult = JsonSerializer.Deserialize<JsonElement>(textContent);
+                    var part = artifact.Parts[0];
+                    if (part.Data is not null)
+                    {
+                        parsedResult = part.Data;
+                    }
+                    else if (!string.IsNullOrEmpty(part.Text))
+                    {
+                        parsedResult = part.Text;
+                    }
                 }
-                catch
+            }
+
+            // Fallback to task history if no artifacts
+            if (parsedResult is null && result?.Task?.History?.Count > 0)
+            {
+                var lastAgentMessage = result.Task.History.LastOrDefault(h => h.Role == "agent");
+                if (lastAgentMessage?.Parts?.Count > 0)
                 {
-                    // Keep as string if not valid JSON
+                    parsedResult = lastAgentMessage.Parts[0].Text;
                 }
             }
 
@@ -117,7 +133,7 @@ public class A2AService(
             {
                 AgentName = request.AgentName,
                 ToolName = request.ToolName,
-                Success = result.IsError != true,
+                Success = result?.Task?.Status?.State == "Completed",
                 Result = parsedResult,
                 ExecutionTimeMs = sw.ElapsedMilliseconds
             };
@@ -125,7 +141,7 @@ public class A2AService(
         catch (Exception ex)
         {
             sw.Stop();
-            logger.LogError(ex, "Error calling tool {Tool} on agent {Agent}", request.ToolName, request.AgentName);
+            logger.LogError(ex, "Error calling skill {Skill} on agent {Agent}", request.ToolName, request.AgentName);
 
             return new AgentCallResponse
             {
@@ -232,7 +248,7 @@ public class A2AService(
             {
                 AgentName = "reviewer",
                 ToolName = "review_plan",
-                Arguments = new Dictionary<string, object?> { ["planJson"] = planJson }
+                Arguments = new Dictionary<string, object?> { ["plan"] = planJson }
             }, ct);
 
             interactions.Add(new AgentInteraction
@@ -240,7 +256,7 @@ public class A2AService(
                 Step = step++,
                 AgentName = "reviewer",
                 ToolName = "review_plan",
-                Arguments = new Dictionary<string, object?> { ["planJson"] = "(plan)" },
+                Arguments = new Dictionary<string, object?> { ["plan"] = "(plan)" },
                 Result = reviewResult.Result,
                 ExecutionTimeMs = reviewResult.ExecutionTimeMs,
                 Status = reviewResult.Success ? "success" : "failed"
@@ -271,76 +287,87 @@ public class A2AService(
         }
     }
 
-    private async Task<McpClient?> GetOrCreateClientAsync(string agentName, CancellationToken ct)
+    private static string BuildMessageForTool(string toolName, Dictionary<string, object?>? arguments)
     {
-        await _lock.WaitAsync(ct);
-        try
+        var args = arguments ?? new Dictionary<string, object?>();
+
+        return toolName switch
         {
-            if (_clients.TryGetValue(agentName, out var existingClient) && existingClient is not null)
-            {
-                return existingClient;
-            }
-
-            if (!AgentEndpoints.TryGetValue(agentName, out var serviceName))
-            {
-                return null;
-            }
-
-            try
-            {
-                var httpClient = httpClientFactory.CreateClient(agentName);
-
-                // The HttpClient base address is configured by Aspire
-                // MCP endpoint is at /mcp path
-                var baseAddress = httpClient.BaseAddress ?? new Uri($"http://{serviceName}");
-                var mcpEndpoint = new Uri(baseAddress, "/mcp");
-
-                logger.LogInformation("Connecting to agent {Agent} at {Endpoint}", agentName, mcpEndpoint);
-
-                var transportOptions = new HttpClientTransportOptions
-                {
-                    Endpoint = mcpEndpoint,
-                    Name = agentName
-                };
-
-                var transport = new HttpClientTransport(transportOptions, httpClient);
-                var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
-
-                _clients[agentName] = client;
-                logger.LogInformation("Connected to agent {Agent}", agentName);
-
-                return client;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to create MCP client for agent {Agent}", agentName);
-                return null;
-            }
-        }
-        finally
-        {
-            _lock.Release();
-        }
+            "assess_complexity" => $"Assess the complexity of this task: {args.GetValueOrDefault("task")}",
+            "suggest_agents" => $"Suggest which agents should handle this task: {args.GetValueOrDefault("task")}",
+            "create_plan" => $"Create a plan for this task: {args.GetValueOrDefault("task")}",
+            "orchestrate_workflow" => $"Orchestrate a workflow for: {args.GetValueOrDefault("task")}",
+            "search_knowledge" => $"Search knowledge for: {args.GetValueOrDefault("query")}",
+            "get_topic_details" => $"Get details about topic: {args.GetValueOrDefault("topic")}",
+            "gather_context" => $"Gather context for: {args.GetValueOrDefault("topics")}",
+            "suggest_topics" => $"Suggest related topics for: {args.GetValueOrDefault("query")}",
+            "review_response" => $"Review this response: {args.GetValueOrDefault("response")}",
+            "review_code" => $"Review this code: {args.GetValueOrDefault("code")}",
+            "review_plan" => $"Review this plan: {args.GetValueOrDefault("plan")}",
+            "provide_feedback" => $"Provide feedback on: {args.GetValueOrDefault("work")}",
+            "execute_csharp" => $"Execute this C# code: {args.GetValueOrDefault("code")}",
+            "generate_code" => $"Generate code for: {args.GetValueOrDefault("requirements")}",
+            "analyze_code" => $"Analyze this code: {args.GetValueOrDefault("code")}",
+            "generate_tests" => $"Generate tests for: {args.GetValueOrDefault("code")}",
+            "refactor_code" => $"Refactor this code: {args.GetValueOrDefault("code")}",
+            _ => $"{toolName}: {JsonSerializer.Serialize(args)}"
+        };
     }
+}
 
-    public async ValueTask DisposeAsync()
-    {
-        foreach (var client in _clients.Values)
-        {
-            if (client is not null)
-            {
-                try
-                {
-                    await client.DisposeAsync();
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Error disposing MCP client");
-                }
-            }
-        }
+// A2A Protocol DTOs for ApiService
+public class AgentCard
+{
+    public string? Name { get; set; }
+    public string? Description { get; set; }
+    public string? Version { get; set; }
+    public List<AgentSkill>? Skills { get; set; }
+}
 
-        _clients.Clear();
-        _lock.Dispose();
-    }
+public class AgentSkill
+{
+    public string? Id { get; set; }
+    public string? Name { get; set; }
+    public string? Description { get; set; }
+}
+
+public class A2AMessageRequest
+{
+    public A2AMessage? Message { get; set; }
+}
+
+public class A2AMessage
+{
+    public string? Role { get; set; }
+    public List<A2APart>? Parts { get; set; }
+}
+
+public class A2APart
+{
+    public string? Text { get; set; }
+    public object? Data { get; set; }
+}
+
+public class A2AMessageResponse
+{
+    public A2ATaskInfo? Task { get; set; }
+}
+
+public class A2ATaskInfo
+{
+    public string? Id { get; set; }
+    public A2ATaskStatus? Status { get; set; }
+    public List<A2AArtifact>? Artifacts { get; set; }
+    public List<A2AMessage>? History { get; set; }
+}
+
+public class A2ATaskStatus
+{
+    public string? State { get; set; }
+    public string? Message { get; set; }
+}
+
+public class A2AArtifact
+{
+    public List<A2APart>? Parts { get; set; }
 }

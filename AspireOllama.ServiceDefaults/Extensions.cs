@@ -1,8 +1,12 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
+using OllamaSharp;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -24,6 +28,17 @@ public static class Extensions
         builder.AddDefaultHealthChecks();
 
         builder.Services.AddServiceDiscovery();
+
+        // Configure forwarded headers for YARP gateway support
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                                       ForwardedHeaders.XForwardedProto |
+                                       ForwardedHeaders.XForwardedHost;
+            // Trust all proxies in the Aspire network
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+        });
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
@@ -119,6 +134,9 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
+        // Enable forwarded headers for YARP gateway support
+        app.UseForwardedHeaders();
+
         // Adding health checks endpoints to applications in non-development environments has security implications.
         // See https://aka.ms/dotnet/aspire/healthchecks for details before enabling these endpoints in non-development environments.
         if (app.Environment.IsDevelopment())
@@ -132,6 +150,110 @@ public static class Extensions
                 Predicate = r => r.Tags.Contains("live")
             });
         }
+
+        return app;
+    }
+
+    public static void AddOlamaSharpClient(this WebApplicationBuilder builder, string model)
+    {
+        var connectionString = SafeConnectionString(builder, "ollama");
+
+        builder.Services.AddHttpClient("ollama", client =>
+        {
+            client.BaseAddress = new Uri(connectionString);
+        });
+
+        builder.Services.AddSingleton<Lazy<IOllamaApiClient>>(sp =>
+        {
+            var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+            var httpClient = httpClientFactory.CreateClient("ollama");
+            return new(() => new OllamaApiClient(httpClient) { SelectedModel = model });
+        });
+    }
+
+    /// <summary>
+    /// Adds an HttpClient for the MCP server using Aspire connection string.
+    /// </summary>
+    public static void AddMcpServerClient(this WebApplicationBuilder builder)
+    {
+        string connectionString = SafeConnectionString(builder, "mcpserver");
+
+        builder.Services.AddHttpClient("mcpserver", client =>
+        {
+            client.BaseAddress = new Uri(connectionString);
+        });
+    }
+
+    public static void AddA2AClient(this WebApplicationBuilder builder, string clientName, string connectionName)
+    {
+        string connectionString = SafeConnectionString(builder, connectionName);
+
+        builder.Services.AddHttpClient(clientName, client =>
+        {
+            client.BaseAddress = new Uri(connectionString);
+        });
+    }
+
+    private static string SafeConnectionString(WebApplicationBuilder builder, string connectionName)
+    {
+        var connectionString = builder.Configuration.GetConnectionString(connectionName);
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+            connectionString = $"http://{connectionName}";
+
+        const string prefix = "Endpoint=";
+        if (connectionString.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            connectionString = connectionString[prefix.Length..];
+
+        return connectionString;
+    }
+
+    /// <summary>
+    /// Adds middleware that enforces requests must come through the YARP gateway.
+    /// </summary>
+    public static WebApplication UseGatewayEnforcement(this WebApplication app)
+    {
+        app.Use(async (context, next) =>
+        {
+            var path = context.Request.Path.Value ?? "";
+
+            // Allow health check endpoints without gateway validation
+            if (path.StartsWith(HealthEndpointPath) || path.StartsWith(AlivenessEndpointPath))
+            {
+                await next();
+                return;
+            }
+
+            // Check if request came through YARP gateway
+            // YARP adds X-Forwarded-For header to proxied requests
+            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+
+            // Allow requests that have forwarding headers (came through gateway)
+            // or internal Aspire service-to-service calls (no external IP)
+            if (!string.IsNullOrEmpty(forwardedFor) || !string.IsNullOrEmpty(forwardedHost))
+            {
+                await next();
+                return;
+            }
+
+            // Check if it's an internal Aspire call (localhost or container network)
+            var remoteIp = context.Connection.RemoteIpAddress?.ToString();
+            if (remoteIp == "127.0.0.1" || remoteIp == "::1" || remoteIp?.StartsWith("10.") == true ||
+                remoteIp?.StartsWith("172.") == true || remoteIp?.StartsWith("192.168.") == true)
+            {
+                await next();
+                return;
+            }
+
+            // Block external requests that didn't come through gateway
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "Direct access forbidden",
+                message = "All requests must go through the YARP gateway"
+            });
+        });
 
         return app;
     }

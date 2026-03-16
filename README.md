@@ -53,7 +53,7 @@ AspireOllama/
 | `AspireOllama.McpServer` | HTTP-based MCP server exposing weather, time, and conversion tools |
 | `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI and file upload |
 | `AspireOllama.Shared` | Shared DTOs for API communication including tool call models |
-| `AspireOllama.ServiceDefaults` | Common service configuration and health checks |
+| `AspireOllama.ServiceDefaults` | Common service configuration, health checks, and Aspire client extensions |
 | `A2A/AspireOllama.A2A.Shared` | Shared A2A protocol models, agent client, and server base class |
 | `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and multi-agent workflow orchestration |
 | `A2A/AspireOllama.A2A.ReviewerAgent` | Quality assurance agent for reviewing responses and code |
@@ -143,7 +143,7 @@ AspireOllama includes specialized AI agents that communicate via the [Agent-to-A
 | Agent | Description | Skills |
 |-------|-------------|--------|
 | **Planner** | Task planning and workflow orchestration | create_plan, assess_complexity, suggest_agents, orchestrate_workflow |
-| **Reviewer** | Quality assurance and validation | review_response, review_code, provide_feedback |
+| **Reviewer** | Quality assurance and validation | review_response, review_code, review_plan, provide_feedback |
 | **Research** | Knowledge gathering and context synthesis | search_knowledge, get_topic_details, gather_context, suggest_topics |
 | **Code** | Code generation, execution, and analysis | execute_csharp, generate_code, analyze_code, generate_tests, refactor_code |
 
@@ -312,6 +312,14 @@ If you encounter timeout errors when uploading images:
 - Check `/debug/mcp` endpoint for connection status
 - Verify MCP server is running in Aspire Dashboard
 - Check for retry attempts in API service logs
+- Ensure `app.MapMcp("/mcp")` is present in MCP server's Program.cs
+
+### A2A Agent Connection Issues
+
+- Verify agents are running in Aspire Dashboard
+- Check that `AddOlamaSharpClient("llama3.1")` is called in each agent's Program.cs
+- Agents read Ollama connection from `ConnectionStrings:ollama` (injected by Aspire)
+- Check agent logs for "Failed to connect" errors
 
 ### Tool Calls Not Working
 

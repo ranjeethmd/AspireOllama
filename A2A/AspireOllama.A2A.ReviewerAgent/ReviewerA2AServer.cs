@@ -1,5 +1,6 @@
 using AspireOllama.A2A.ReviewerAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
@@ -10,16 +11,16 @@ namespace AspireOllama.A2A.ReviewerAgent;
 
 public class ReviewerA2AServer : A2AServerBase
 {
-    private readonly IOllamaApiClient _ollama;
+    private readonly Lazy<IOllamaApiClient> _ollama;
     private readonly KnownAgentsOptions _knownAgents;
 
     public ReviewerA2AServer(
-        IOllamaApiClient ollama,
+        Lazy<IOllamaApiClient> ollamaClient,
         IOptions<KnownAgentsOptions> knownAgents,
         IA2AAgentClient a2aClient,
         ILogger<ReviewerA2AServer> logger) : base(logger, a2aClient)
     {
-        _ollama = ollama;
+        _ollama = ollamaClient;
         _knownAgents = knownAgents.Value;
     }
 
@@ -51,6 +52,14 @@ public class ReviewerA2AServer : A2AServerBase
             },
             new AgentSkill
             {
+                Id = "review_plan",
+                Name = "Review Plan",
+                Description = "Reviews task plans for completeness, feasibility, and proper agent assignments",
+                Tags = ["review", "planning", "validation"],
+                Examples = ["Review this implementation plan", "Validate the task breakdown"]
+            },
+            new AgentSkill
+            {
                 Id = "provide_feedback",
                 Name = "Provide Feedback",
                 Description = "Provides detailed feedback to other agents about their work output",
@@ -75,6 +84,10 @@ public class ReviewerA2AServer : A2AServerBase
             if (lowerText.Contains("code"))
             {
                 await ProcessCodeReview(task, text, ct);
+            }
+            else if (lowerText.Contains("plan"))
+            {
+                await ProcessPlanReview(task, text, ct);
             }
             else if (lowerText.Contains("feedback") || lowerText.Contains("agent"))
             {
@@ -105,7 +118,7 @@ public class ReviewerA2AServer : A2AServerBase
             "Evaluate on: Relevance, Completeness, Accuracy, Clarity, Helpfulness.\n\n" +
             "Respond in JSON: {\"approved\": true, \"score\": 85, \"issues\": [], \"summary\": \"assessment\", \"improvements\": []}";
 
-        var stream = _ollama.GenerateAsync(prompt: prompt, cancellationToken: ct);
+        var stream = _ollama.Value.GenerateAsync(prompt: prompt, cancellationToken: ct);
         var result = await stream.StreamToEndAsync();
         var response = result?.Response ?? "";
 
@@ -121,6 +134,31 @@ public class ReviewerA2AServer : A2AServerBase
         }
     }
 
+    private async Task ProcessPlanReview(A2ATask task, string content, CancellationToken ct)
+    {
+        UpdateTaskStatus(task, TaskState.Working, "Reviewing plan...", 30);
+
+        var prompt = "You are an expert plan reviewer. Analyze this task plan:\n\n" +
+            content + "\n\n" +
+            "Evaluate: Completeness, Feasibility, Proper agent assignments, Step ordering, Risk assessment.\n\n" +
+            "Respond in JSON: {\"approved\": true, \"score\": 85, \"issues\": [], \"summary\": \"assessment\", \"improvements\": [], \"missingSteps\": [], \"riskLevel\": \"low|medium|high\"}";
+
+        var stream = _ollama.Value.GenerateAsync(prompt: prompt, cancellationToken: ct);
+        var result = await stream.StreamToEndAsync();
+        var response = result?.Response ?? "";
+
+        var review = ParseJsonResponse<PlanReviewResult>(response);
+        if (review is not null)
+        {
+            AddArtifact(task, review, "Plan Review Result");
+            AddResponseToHistory(task, $"Plan Review: {(review.Approved ? "Approved" : "Needs Revision")} - Score: {review.Score}/100, Risk: {review.RiskLevel}");
+        }
+        else
+        {
+            AddTextArtifact(task, response, "Plan Review Response");
+        }
+    }
+
     private async Task ProcessCodeReview(A2ATask task, string content, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Reviewing code...", 30);
@@ -130,7 +168,7 @@ public class ReviewerA2AServer : A2AServerBase
             "Review for: Security vulnerabilities, Performance issues, Code quality, Best practices, Potential bugs.\n\n" +
             "Respond in JSON: {\"approved\": true, \"issueCount\": 0, \"issues\": [{\"severity\": \"high|medium|low\", \"type\": \"type\", \"description\": \"desc\", \"suggestion\": \"fix\"}], \"summary\": \"assessment\", \"securityScore\": 80, \"qualityScore\": 80}";
 
-        var stream = _ollama.GenerateAsync(prompt: prompt, cancellationToken: ct);
+        var stream = _ollama.Value.GenerateAsync(prompt: prompt, cancellationToken: ct);
         var result = await stream.StreamToEndAsync();
         var response = result?.Response ?? "";
 
@@ -154,7 +192,7 @@ public class ReviewerA2AServer : A2AServerBase
             "Work to Review:\n" + content + "\n\n" +
             "Provide detailed feedback. Respond in JSON: {\"verdict\": \"accept|revise|reject\", \"completionPercentage\": 80, \"strengths\": [], \"weaknesses\": [], \"detailedFeedback\": \"text\", \"shouldRetry\": false, \"nextSteps\": []}";
 
-        var stream = _ollama.GenerateAsync(prompt: prompt, cancellationToken: ct);
+        var stream = _ollama.Value.GenerateAsync(prompt: prompt, cancellationToken: ct);
         var result = await stream.StreamToEndAsync();
         var response = result?.Response ?? "";
 

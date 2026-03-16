@@ -46,13 +46,13 @@
             }
         </div>
         <div class="sidebar-footer">
-            <a href="/agents" class="agents-link-btn">
+            <button class="agents-link-btn" @onclick="NavigateToAgents">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="3"/>
                     <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
                 </svg>
                 A2A Agents
-            </a>
+            </button>
             <div class="agent-status">
                 <span class="status-dot @(isLoading ? "processing" : "ready")"></span>
                 <span class="status-text">@(isLoading ? "Processing..." : "Ready")</span>
@@ -469,14 +469,15 @@
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
+        width: 100%;
         padding: 0.75rem 1rem;
         background: rgba(102, 126, 234, 0.15);
         border: 1px solid rgba(102, 126, 234, 0.3);
         border-radius: 10px;
         color: #a5b4fc;
-        text-decoration: none;
         font-size: 0.875rem;
         font-weight: 500;
+        cursor: pointer;
         transition: all 0.2s ease;
     }
 
@@ -1227,6 +1228,15 @@
             // Load most recent session
             await LoadSession(sessions[0].Id);
         }
+    }
+
+    // ============================================================
+    // Navigation Methods
+    // ============================================================
+
+    private void NavigateToAgents()
+    {
+        Navigation.NavigateTo("/agents");
     }
 
     // ============================================================

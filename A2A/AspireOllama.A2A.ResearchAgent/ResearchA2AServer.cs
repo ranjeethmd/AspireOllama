@@ -1,5 +1,6 @@
 using AspireOllama.A2A.ResearchAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
@@ -10,7 +11,7 @@ namespace AspireOllama.A2A.ResearchAgent;
 
 public class ResearchA2AServer : A2AServerBase
 {
-    private readonly IOllamaApiClient _ollama;
+    private readonly Lazy<IOllamaApiClient> _ollama;
     private readonly KnownAgentsOptions _knownAgents;
 
     private static readonly Dictionary<string, string> KnowledgeBase = new()
@@ -24,12 +25,12 @@ public class ResearchA2AServer : A2AServerBase
     };
 
     public ResearchA2AServer(
-        IOllamaApiClient ollama,
+        Lazy<IOllamaApiClient> ollamaClient,
         IOptions<KnownAgentsOptions> knownAgents,
         IA2AAgentClient a2aClient,
         ILogger<ResearchA2AServer> logger) : base(logger, a2aClient)
     {
-        _ollama = ollama;
+        _ollama = ollamaClient;
         _knownAgents = knownAgents.Value;
     }
 
@@ -132,7 +133,7 @@ public class ResearchA2AServer : A2AServerBase
             "If the knowledge base doesn't have enough information, use your training data.\n\n" +
             "Respond in JSON: {\"matches\": [{\"topic\": \"name\", \"content\": \"info\", \"relevance\": 0.9}], \"synthesis\": \"comprehensive answer\", \"confidence\": 0.8}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var searchResult = ParseJsonResponse<SearchResult>(response);
@@ -157,7 +158,7 @@ public class ResearchA2AServer : A2AServerBase
             "Base knowledge: " + (baseContent ?? "Use your training data.") + "\n\n" +
             "Respond in JSON: {\"topic\": \"name\", \"overview\": \"summary\", \"details\": \"detailed explanation\", \"keyConcepts\": [], \"useCases\": [], \"relatedTopics\": []}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var details = ParseJsonResponse<TopicDetailsResult>(response);
@@ -193,7 +194,7 @@ public class ResearchA2AServer : A2AServerBase
             "Available knowledge:\n" + string.Join("\n", allContext.Select(c => "- " + c.Key + ": " + c.Value)) + "\n\n" +
             "Respond in JSON: {\"topics\": [\"topic1\"], \"foundItems\": [{\"topic\": \"name\", \"content\": \"info\"}], \"synthesis\": \"combined context\", \"confidence\": 0.8, \"gaps\": [\"missing info\"]}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var context = ParseJsonResponse<ContextResult>(response);
@@ -218,7 +219,7 @@ public class ResearchA2AServer : A2AServerBase
             "Available topics in knowledge base: " + availableTopics + "\n\n" +
             "Respond in JSON: {\"suggestions\": [{\"topic\": \"name\", \"relevance\": 0.9, \"reason\": \"why\"}], \"researchPath\": \"recommended order\", \"additionalSuggestions\": [\"external topics\"]}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var suggestions = ParseJsonResponse<SuggestionsResult>(response);

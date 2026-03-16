@@ -13,7 +13,6 @@ This folder contains specialized AI agents that communicate via the [Google Agen
 │   • POST /a2a/message:send        (Send message, receive task)              │
 │   • GET  /a2a/tasks/{taskId}      (Get task status and results)             │
 │   • POST /a2a/tasks/{taskId}:cancel (Cancel a running task)                 │
-│   • /mcp                          (MCP tools - legacy support)              │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
@@ -44,7 +43,7 @@ A2A/
 │   ├── A2AAgentClient.cs            # HTTP client for inter-agent calls
 │   └── A2AServerBase.cs             # Base class for A2A servers
 ├── AspireOllama.A2A.PlannerAgent/   # Task planning and orchestration
-│   ├── Program.cs                   # A2A + MCP endpoints
+│   ├── Program.cs                   # A2A endpoints
 │   └── PlannerA2AServer.cs          # A2A implementation
 ├── AspireOllama.A2A.ReviewerAgent/  # Quality review and validation
 │   ├── Program.cs
@@ -78,7 +77,7 @@ A2A/
 
 ### 2. Reviewer Agent
 
-**Purpose:** Reviews and validates content, code, and responses for quality assurance.
+**Purpose:** Reviews and validates content, code, plans, and responses for quality assurance.
 
 **Skills:**
 
@@ -86,6 +85,7 @@ A2A/
 |-------|-------------|
 | `review_response` | Reviews response for quality, accuracy, and completeness |
 | `review_code` | Deep code review analyzing security, performance, and best practices |
+| `review_plan` | Reviews task plans for completeness, feasibility, and proper agent assignments |
 | `provide_feedback` | Provides detailed feedback to other agents about their work output |
 
 ### 3. Research Agent
@@ -216,7 +216,25 @@ POST /a2a/message:send
 }
 ```
 
-## Inter-Agent Communication
+## Service Connectivity
+
+### Ollama Connection
+
+Agents connect to Ollama using the `AddOlamaSharpClient` extension method which reads connection strings from Aspire:
+
+```csharp
+// Program.cs in each agent
+builder.AddServiceDefaults();
+builder.AddOlamaSharpClient("llama3.1");
+```
+
+This extension (defined in `ServiceDefaults/Extensions.cs`):
+- Reads connection string from `ConnectionStrings:ollama`
+- Parses `Endpoint=http://...` format from Aspire
+- Falls back to `http://ollama` for local development
+- Registers `Lazy<IOllamaApiClient>` for dependency injection
+
+### Inter-Agent Communication
 
 Agents discover each other via Aspire service discovery:
 
@@ -226,6 +244,9 @@ plannerAgent
     .WithEnvironment("A2A__KnownAgents__reviewer", reviewerAgent.GetEndpoint("http"))
     .WithEnvironment("A2A__KnownAgents__research", researchAgent.GetEndpoint("http"))
     .WithEnvironment("A2A__KnownAgents__code", codeAgent.GetEndpoint("http"));
+
+// Agents wait for Ollama to be ready
+plannerAgent.WithReference(ollama).WaitFor(llama);
 ```
 
 Inside an agent, call another agent:

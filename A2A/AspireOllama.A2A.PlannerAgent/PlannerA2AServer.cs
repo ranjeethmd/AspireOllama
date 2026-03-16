@@ -1,5 +1,6 @@
 using AspireOllama.A2A.PlannerAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
@@ -10,16 +11,16 @@ namespace AspireOllama.A2A.PlannerAgent;
 
 public class PlannerA2AServer : A2AServerBase
 {
-    private readonly IOllamaApiClient _ollama;
+    private readonly Lazy<IOllamaApiClient> _ollama;
     private readonly KnownAgentsOptions _knownAgents;
 
     public PlannerA2AServer(
-        IOllamaApiClient ollama,
+        Lazy<IOllamaApiClient> ollamaClient,
         IOptions<KnownAgentsOptions> knownAgents,
         IA2AAgentClient a2aClient,
         ILogger<PlannerA2AServer> logger) : base(logger, a2aClient)
     {
-        _ollama = ollama;
+        _ollama = ollamaClient;
         _knownAgents = knownAgents.Value;
     }
 
@@ -132,7 +133,7 @@ public class PlannerA2AServer : A2AServerBase
             (researchContext is not null ? "Context from research:\n" + researchContext + "\n\n" : "") +
             "Respond in JSON: {\"title\": \"Plan Title\", \"steps\": [{\"step\": 1, \"action\": \"action\", \"agent\": \"planner|research|code|reviewer\", \"details\": \"details\"}], \"estimatedComplexity\": \"low|medium|high\", \"summary\": \"brief summary\"}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var content = result?.Response ?? "";
 
         var plan = ParseJsonResponse<PlanResult>(content);
@@ -154,7 +155,7 @@ public class PlannerA2AServer : A2AServerBase
         var prompt = "Assess the complexity of this task:\n\n" + taskDescription + "\n\n" +
             "Respond in JSON: {\"complexityLevel\": \"low|medium|high|critical\", \"score\": 1-10, \"factors\": [\"factor1\"], \"needsPlanning\": true, \"needsResearch\": false, \"needsCode\": true, \"needsReview\": true, \"reasoning\": \"explanation\"}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var content = result?.Response ?? "";
 
         var assessment = ParseJsonResponse<ComplexityAssessment>(content);
@@ -184,7 +185,7 @@ public class PlannerA2AServer : A2AServerBase
             "- reviewer: Quality review, feedback, validation\n\n" +
             "Respond in JSON: {\"suggestions\": [{\"agent\": \"name\", \"role\": \"role\", \"priority\": 1, \"reason\": \"why\"}], \"workflow\": \"recommended order\"}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var content = result?.Response ?? "";
 
         var suggestions = ParseJsonResponse<AgentSuggestions>(content);
@@ -210,7 +211,7 @@ public class PlannerA2AServer : A2AServerBase
         // Step 1: Assess complexity
         UpdateTaskStatus(task, TaskState.Working, "Step 1: Assessing complexity...", 25);
         var complexityPrompt = "Quickly assess complexity of: " + taskDescription + "\nRespond in JSON: {\"level\": \"low|medium|high\", \"needsResearch\": true, \"needsCode\": true}";
-        var complexityResult = await _ollama.GenerateAsync(complexityPrompt, cancellationToken: ct).StreamToEndAsync();
+        var complexityResult = await _ollama.Value.GenerateAsync(complexityPrompt, cancellationToken: ct).StreamToEndAsync();
 
         workflowSteps.Add(new WorkflowStep { Step = 1, Agent = "planner", Action = "assess_complexity", Result = complexityResult?.Response });
 
@@ -225,7 +226,7 @@ public class PlannerA2AServer : A2AServerBase
         // Step 3: Create plan
         UpdateTaskStatus(task, TaskState.Working, "Step 3: Creating detailed plan...", 60);
         var planPrompt = "Create a detailed plan for: " + taskDescription + "\nRespond in JSON: {\"steps\": [{\"step\": 1, \"action\": \"action\", \"agent\": \"agent\"}]}";
-        var planResult = await _ollama.GenerateAsync(planPrompt, cancellationToken: ct).StreamToEndAsync();
+        var planResult = await _ollama.Value.GenerateAsync(planPrompt, cancellationToken: ct).StreamToEndAsync();
         workflowSteps.Add(new WorkflowStep { Step = 3, Agent = "planner", Action = "create_plan", Result = planResult?.Response });
 
         // Step 4: Get review if available

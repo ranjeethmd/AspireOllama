@@ -41,3 +41,14 @@ public class AgentFeedbackResult
     public bool ShouldRetry { get; set; }
     public List<string>? NextSteps { get; set; }
 }
+
+public class PlanReviewResult
+{
+    public bool Approved { get; set; }
+    public int Score { get; set; }
+    public List<string>? Issues { get; set; }
+    public string? Summary { get; set; }
+    public List<string>? Improvements { get; set; }
+    public List<string>? MissingSteps { get; set; }
+    public string? RiskLevel { get; set; }
+}

@@ -9,7 +9,6 @@ using AspireOllama.ApiService.Services.Tools;
 using AspireOllama.Shared;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
-using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -78,13 +77,8 @@ builder.Services.Configure<ToolConfiguration>(
 // HTTP client factory for web search tool
 builder.Services.AddHttpClient();
 
-// Named HttpClient for MCP server - uses Aspire service discovery
-builder.Services.AddHttpClient("mcpserver", client =>
-{
-    // Base address will be configured by Aspire service discovery
-    // The name "mcpserver" matches the resource name in AppHost
-    client.BaseAddress = new Uri("http://mcpserver");
-});
+// Named HttpClient for MCP server - uses Aspire connection string
+builder.AddMcpServerClient();
 
 // Built-in tools
 builder.Services.AddSingleton<CalculatorTool>();
@@ -102,24 +96,11 @@ builder.Services.AddSingleton<IMcpService, McpService>();
 // A2A Agent Configuration
 // ============================================================
 
-// HTTP clients for A2A agents - uses Aspire service discovery
-// Using http:// scheme - Aspire will resolve the service name
-builder.Services.AddHttpClient("planner", client =>
-{
-    client.BaseAddress = new Uri("http://planner-agent");
-});
-builder.Services.AddHttpClient("reviewer", client =>
-{
-    client.BaseAddress = new Uri("http://reviewer-agent");
-});
-builder.Services.AddHttpClient("research", client =>
-{
-    client.BaseAddress = new Uri("http://research-agent");
-});
-builder.Services.AddHttpClient("code", client =>
-{
-    client.BaseAddress = new Uri("http://code-agent");
-});
+// HTTP clients for A2A agents - uses Aspire connection strings
+builder.AddA2AClient("planner", "planner-agent");
+builder.AddA2AClient("reviewer", "reviewer-agent");
+builder.AddA2AClient("research", "research-agent");
+builder.AddA2AClient("code", "code-agent");
 
 // A2A service (coordinates agent-to-agent communication)
 builder.Services.AddSingleton<IA2AService, A2AService>();
@@ -196,23 +177,31 @@ using (var scope = app.Services.CreateScope())
 // HTTP Pipeline Configuration
 // ============================================================
 
+// Enable forwarded headers and gateway enforcement
+// All external requests must come through the YARP gateway
+app.MapDefaultEndpoints();
+app.UseGatewayEnforcement();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
-    app.MapOpenApi(); // Generate OpenAPI docs at /openapi.json 
-    app.MapScalarApiReference(); // Mounts the UI at /scalar/v1
 }
 else
 {
     app.UseExceptionHandler();
 }
 
-// Map FastEndpoints routes (/chat, /sessions, etc.)
-app.UseFastEndpoints();
+// OpenAPI spec for Scalar aggregation (default path /openapi/v1.json)
+app.MapOpenApi();
 
-app.MapGet("/", () => "API service is running.");
+// Map FastEndpoints routes with /api prefix for YARP gateway routing
+// Gateway routes /api/* to this service
+app.UseFastEndpoints(config =>
+{
+    config.Endpoints.RoutePrefix = "api";
+});
 
-// Aspire health check endpoints
-app.MapDefaultEndpoints();
+app.MapGet("/", () => "API service is running. Access via YARP gateway at /api/*.");
+app.MapGet("/api", () => "API service is running. Use /api/chat, /api/sessions, etc.");
 
-app.Run();
+await app.RunAsync();

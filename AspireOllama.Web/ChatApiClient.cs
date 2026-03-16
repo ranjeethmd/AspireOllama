@@ -5,13 +5,14 @@ namespace AspireOllama.Web;
 /// <summary>
 /// HTTP client for communicating with the AspireOllama API service.
 /// Handles chat messages, sessions, and history operations.
+/// All paths use /api prefix to match API service routing.
 /// </summary>
 /// <param name="httpClient">Configured HttpClient with base URL pointing to API service</param>
 public class ChatApiClient(HttpClient httpClient)
 {
     public async Task<ChatMessageResponse> SendMessageAsync(ChatMessageRequest request, CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.PostAsJsonAsync("/chat", request, cancellationToken);
+        var response = await httpClient.PostAsJsonAsync("/api/chat", request, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<ChatMessageResponse>(cancellationToken)
             ?? new ChatMessageResponse();
@@ -23,7 +24,7 @@ public class ChatApiClient(HttpClient httpClient)
     /// <returns>The newly created session with ID and default title</returns>
     public async Task<ChatSession> CreateSessionAsync(CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.PostAsync("/sessions", null, cancellationToken);
+        var response = await httpClient.PostAsync("/api/sessions", null, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<ChatSession>(cancellationToken)
             ?? new ChatSession();
@@ -35,7 +36,7 @@ public class ChatApiClient(HttpClient httpClient)
     /// <returns>List of sessions for sidebar display</returns>
     public async Task<List<ChatSession>> GetSessionsAsync(CancellationToken cancellationToken = default)
     {
-        return await httpClient.GetFromJsonAsync<List<ChatSession>>("/sessions", cancellationToken)
+        return await httpClient.GetFromJsonAsync<List<ChatSession>>("/api/sessions", cancellationToken)
             ?? new List<ChatSession>();
     }
 
@@ -46,7 +47,7 @@ public class ChatApiClient(HttpClient httpClient)
     /// <returns>Session with messages, or null if not found</returns>
     public async Task<ChatSessionDetails?> GetSessionHistoryAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.GetAsync($"/sessions/{sessionId}", cancellationToken);
+        var response = await httpClient.GetAsync($"/api/sessions/{sessionId}", cancellationToken);
         if (!response.IsSuccessStatusCode)
             return null;
         return await response.Content.ReadFromJsonAsync<ChatSessionDetails>(cancellationToken);
@@ -59,7 +60,7 @@ public class ChatApiClient(HttpClient httpClient)
     /// <returns>True if deleted successfully</returns>
     public async Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.DeleteAsync($"/sessions/{sessionId}", cancellationToken);
+        var response = await httpClient.DeleteAsync($"/api/sessions/{sessionId}", cancellationToken);
         return response.IsSuccessStatusCode;
     }
 
@@ -72,7 +73,7 @@ public class ChatApiClient(HttpClient httpClient)
     /// </summary>
     public async Task<List<AgentInfo>> GetAgentsAsync(CancellationToken cancellationToken = default)
     {
-        return await httpClient.GetFromJsonAsync<List<AgentInfo>>("/agents", cancellationToken)
+        return await httpClient.GetFromJsonAsync<List<AgentInfo>>("/api/agents", cancellationToken)
             ?? [];
     }
 
@@ -81,7 +82,7 @@ public class ChatApiClient(HttpClient httpClient)
     /// </summary>
     public async Task<AgentCallResponse> CallAgentToolAsync(AgentCallRequest request, CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.PostAsJsonAsync("/agents/call", request, cancellationToken);
+        var response = await httpClient.PostAsJsonAsync("/api/agents/call", request, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<AgentCallResponse>(cancellationToken)
             ?? new AgentCallResponse();
@@ -92,7 +93,7 @@ public class ChatApiClient(HttpClient httpClient)
     /// </summary>
     public async Task<AgentWorkflowResponse> RunWorkflowAsync(AgentWorkflowRequest request, CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.PostAsJsonAsync("/agents/workflow", request, cancellationToken);
+        var response = await httpClient.PostAsJsonAsync("/api/agents/workflow", request, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<AgentWorkflowResponse>(cancellationToken)
             ?? new AgentWorkflowResponse();

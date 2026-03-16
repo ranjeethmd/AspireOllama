@@ -2,29 +2,34 @@ using AspireOllama.A2A.CodeAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
-using OllamaSharp.AsyncEnumerableExtensions;
 using System.Text.Json;
 
 namespace AspireOllama.A2A.CodeAgent;
 
 public class CodeA2AServer : A2AServerBase
 {
-    private readonly IOllamaApiClient _ollama;
+   // private readonly IServiceProvider _serviceProvider;
     private readonly KnownAgentsOptions _knownAgents;
-    private static readonly ScriptOptions DefaultScriptOptions = ScriptOptions.Default
+    private IOllamaApiClient? _ollamaClient;
+    private static ScriptOptions? _scriptOptions;
+
+    private static ScriptOptions DefaultScriptOptions => _scriptOptions ??= ScriptOptions.Default
         .WithReferences(typeof(object).Assembly, typeof(Enumerable).Assembly)
         .WithImports("System", "System.Linq", "System.Collections.Generic", "System.Text");
 
+    private  Lazy<IOllamaApiClient> _ollama;
+
     public CodeA2AServer(
-        IOllamaApiClient ollama,
+        Lazy<IOllamaApiClient> ollamaClient,
+        IServiceProvider serviceProvider,
         IOptions<KnownAgentsOptions> knownAgents,
         IA2AAgentClient a2aClient,
         ILogger<CodeA2AServer> logger) : base(logger, a2aClient)
     {
-        _ollama = ollama;
+        _ollama = ollamaClient;
         _knownAgents = knownAgents.Value;
     }
 
@@ -217,7 +222,7 @@ public class CodeA2AServer : A2AServerBase
         var prompt = "You are an expert developer. Generate code for:\n\n" + description + "\n\n" +
             "Respond in JSON: {\"code\": \"generated code\", \"language\": \"csharp\", \"explanation\": \"what it does\", \"usage\": \"how to use it\"}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var generated = ParseJsonResponse<CodeGenResult>(response);
@@ -240,7 +245,7 @@ public class CodeA2AServer : A2AServerBase
             "Review: Structure, Complexity, Patterns, Bugs, Security.\n\n" +
             "Respond in JSON: {\"complexityScore\": 5, \"complexityLevel\": \"medium\", \"detectedPatterns\": [], \"potentialIssues\": [], \"suggestions\": [], \"summary\": \"assessment\"}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var analysis = ParseJsonResponse<AnalysisResult>(response);
@@ -263,7 +268,7 @@ public class CodeA2AServer : A2AServerBase
             "Cover: Happy paths, edge cases, error handling.\n\n" +
             "Respond in JSON: {\"testCode\": \"test code\", \"framework\": \"xunit\", \"testCount\": 5, \"scenarios\": [\"scenario 1\"]}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var tests = ParseJsonResponse<TestGenResult>(response);
@@ -288,7 +293,7 @@ public class CodeA2AServer : A2AServerBase
         var prompt = "Refactor this code to improve " + goal + ":\n\n" + input + "\n\n" +
             "Respond in JSON: {\"refactoredCode\": \"code\", \"changes\": [\"change 1\"], \"improvementScore\": 80, \"explanation\": \"what was improved\"}";
 
-        var result = await _ollama.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
+        var result = await _ollama.Value.GenerateAsync(prompt, cancellationToken: ct).StreamToEndAsync();
         var response = result?.Response ?? "";
 
         var refactored = ParseJsonResponse<RefactorResult>(response);

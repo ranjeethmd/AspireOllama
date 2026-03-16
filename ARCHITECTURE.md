@@ -152,6 +152,10 @@ AspireOllama is a distributed AI chat application with the following key capabil
                         │                     │
                         │  Health Checks      │
                         │  Telemetry          │
+                        │  Client Extensions: │
+                        │  - AddOlamaSharp    │
+                        │  - AddMcpServer     │
+                        │  - AddA2AClient     │
                         │                     │
                         └─────────────────────┘
 ```
@@ -941,6 +945,51 @@ AspireOllama is a distributed AI chat application with the following key capabil
                                          │Weather │  │  Time  │  │Convert │
                                          │  Tool  │  │  Tool  │  │  Tool  │
                                          └────────┘  └────────┘  └────────┘
+```
+
+---
+
+## Service Connectivity
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ASPIRE SERVICE CONNECTION PATTERN                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+    ServiceDefaults/Extensions.cs provides extension methods for service connectivity:
+
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                     Extension Methods                               │
+    │                                                                     │
+    │   AddOlamaSharpClient(model)     - Ollama AI connection            │
+    │   AddMcpServerClient()           - MCP server connection           │
+    │   AddA2AClient(name, connection) - A2A agent connections           │
+    │                                                                     │
+    └─────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                     SafeConnectionString()                          │
+    │                                                                     │
+    │   1. Read from builder.Configuration.GetConnectionString()          │
+    │   2. Parse "Endpoint=http://..." format from Aspire                 │
+    │   3. Fallback to "http://{serviceName}" for local development       │
+    │                                                                     │
+    └─────────────────────────────────────────────────────────────────────┘
+
+
+    USAGE EXAMPLES:
+
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  A2A Agents:                                                        │
+    │    builder.AddOlamaSharpClient("llama3.1");                         │
+    │                                                                     │
+    │  API Service:                                                       │
+    │    builder.AddMcpServerClient();                                    │
+    │    builder.AddA2AClient("planner", "planner-agent");                │
+    │                                                                     │
+    └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---

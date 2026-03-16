@@ -1,21 +1,11 @@
 using AspireOllama.A2A.ReviewerAgent;
-using AspireOllama.A2A.ReviewerAgent.Tools;
 using AspireOllama.A2A.Shared;
-using ModelContextProtocol.Server;
 using OllamaSharp;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-
-// Configure OllamaSharp client
-var ollamaUrl = builder.Configuration["ConnectionStrings:ollama-reviewer"] ?? "http://localhost:11434";
-builder.Services.AddSingleton<IOllamaApiClient>(sp =>
-{
-    var client = new OllamaApiClient(ollamaUrl);
-    client.SelectedModel = "llama3.1";
-    return client;
-});
+builder.AddOlamaSharpClient("llama3.1");
 
 // Configure A2A known agents
 builder.Services.Configure<KnownAgentsOptions>(options =>
@@ -37,22 +27,7 @@ builder.Services.AddHttpClient("code", client => client.BaseAddress = new Uri(bu
 builder.Services.AddSingleton<IA2AAgentClient, A2AAgentClient>();
 builder.Services.AddSingleton<ReviewerA2AServer>();
 
-builder.Services
-    .AddMcpServer(options =>
-    {
-        options.ServerInfo = new()
-        {
-            Name = "Reviewer Agent",
-            Version = "2.0.0"
-        };
-    })
-    .WithHttpTransport()
-    .WithToolsFromAssembly();
-
 var app = builder.Build();
-
-var ollamaClient = app.Services.GetRequiredService<IOllamaApiClient>();
-ReviewerTools.Initialize(ollamaClient);
 
 var a2aServer = app.Services.GetRequiredService<ReviewerA2AServer>();
 
@@ -68,9 +43,6 @@ app.MapGet("/a2a/tasks", () => a2aServer.GetAllTasks());
 app.MapPost("/a2a/tasks/{taskId}:cancel", (string taskId) =>
     a2aServer.CancelTask(taskId) ? Results.Ok() : Results.NotFound());
 
-// MCP endpoints
-app.MapMcp("/mcp");
-app.MapGet("/", () => "Reviewer Agent v2.0 (AI-Powered + A2A) is running. Endpoints: /mcp (MCP), /.well-known/agent.json (A2A)");
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", agent = "reviewer", version = "2.0", ai = true, a2a = true }));
+app.MapGet("/", () => "Reviewer Agent v2.0 (A2A) is running. Endpoint: /.well-known/agent.json");
 
-app.Run();
+await app.RunAsync();

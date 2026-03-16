@@ -12,8 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.0.0" />
-    <PackageReference Include="OllamaSharp" Version="5.1.12" />
+    <PackageReference Include="OllamaSharp" Version="5.4.23" />
   </ItemGroup>
 
 </Project>

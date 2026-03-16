@@ -20,15 +20,28 @@
             <span class="brand-text">A2A Agents</span>
         </div>
 
-        <a href="/" class="nav-link-btn">
+        <button class="nav-link-btn" @onclick="NavigateToChat">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
             Back to Chat
-        </a>
+        </button>
 
         <div class="agents-list">
             <h3 class="sidebar-section-title">Available Agents</h3>
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="error-message" style="padding: 12px; background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; margin-bottom: 12px; font-size: 12px; color: #f87171;">
+                    @errorMessage
+                </div>
+            }
+            @if (isLoading)
+            {
+                <div style="padding: 20px; text-align: center; color: #888;">
+                    <div class="spinner" style="margin: 0 auto 10px;"></div>
+                    Loading agents...
+                </div>
+            }
             @foreach (var agent in agents)
             {
                 <div class="agent-card @(selectedAgent == agent.Name ? "active" : "") @agent.Status" @onclick="() => SelectAgent(agent)">
@@ -415,12 +428,14 @@
         display: flex;
         align-items: center;
         gap: 8px;
+        width: 100%;
         padding: 10px 16px;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 8px;
         color: #e4e4e4;
-        text-decoration: none;
+        font-size: inherit;
+        cursor: pointer;
         margin-bottom: 16px;
         transition: all 0.2s;
     }
@@ -1387,21 +1402,43 @@
         _ => "#888"
     };
 
-    protected override async Task OnInitializedAsync()
+    private string? errorMessage;
+
+    protected override void OnInitialized()
+    {
+        // Start loading agents without blocking render
+        _ = LoadAgentsAsync();
+    }
+
+    private async Task LoadAgentsAsync()
     {
         await LoadAgents();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void NavigateToChat()
+    {
+        Navigation.NavigateTo("/");
     }
 
     private async Task LoadAgents()
     {
         isLoading = true;
+        errorMessage = null;
         try
         {
-            agents = await ChatClient.GetAgentsAsync();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            agents = await ChatClient.GetAgentsAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            errorMessage = "Loading agents timed out. The API service may be unavailable.";
+            agents = [];
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading agents: {ex.Message}");
+            errorMessage = $"Error loading agents: {ex.Message}";
+            agents = [];
         }
         finally
         {

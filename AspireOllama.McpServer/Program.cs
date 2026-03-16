@@ -16,9 +16,15 @@ builder.Services
 
 var app = builder.Build();
 
+// Enable forwarded headers and gateway enforcement
+// All external requests must come through the YARP gateway
 app.MapDefaultEndpoints();
-app.MapMcp("/mcp");
-app.MapGet("/", () => "MCP Server is running. Connect to /mcp for MCP protocol.");
+app.UseGatewayEnforcement();
 
-app.Run();
+// Map MCP transport endpoint
+app.MapMcp("/mcp");
+
+app.MapGet("/", () => "MCP Server is running. Connect to /mcp for MCP protocol.");
+app.MapOpenApiMCP();
+await app.RunAsync();
 

@@ -67,6 +67,11 @@ var app = builder.Build();
 // HTTP Pipeline Configuration
 // ============================================================
 
+// Enable forwarded headers and gateway enforcement
+// All external requests must come through the YARP gateway
+app.MapDefaultEndpoints();
+app.UseGatewayEnforcement();
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -84,7 +89,4 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Aspire health check endpoints
-app.MapDefaultEndpoints();
-
-app.Run();
+await app.RunAsync();
