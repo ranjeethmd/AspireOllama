@@ -1,0 +1,1592 @@
+@page "/agents"
+@using AspireOllama.Web
+@using AspireOllama.Shared
+@using System.Text.Json
+@inject ChatApiClient ChatClient
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>A2A Agents</PageTitle>
+
+<div class="agent-layout">
+    <div class="agent-sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                </svg>
+            </div>
+            <span class="brand-text">A2A Agents</span>
+        </div>
+
+        <a href="/" class="nav-link-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Back to Chat
+        </a>
+
+        <div class="agents-list">
+            <h3 class="sidebar-section-title">Available Agents</h3>
+            @foreach (var agent in agents)
+            {
+                <div class="agent-card @(selectedAgent == agent.Name ? "active" : "") @agent.Status" @onclick="() => SelectAgent(agent)">
+                    <div class="agent-card-icon">
+                        @GetAgentIcon(agent.Name)
+                    </div>
+                    <div class="agent-card-info">
+                        <span class="agent-card-name">@GetAgentDisplayName(agent.Name)</span>
+                        <span class="agent-card-tools">@agent.Tools.Count tools</span>
+                    </div>
+                    <div class="agent-status-indicator @agent.Status"></div>
+                </div>
+            }
+        </div>
+
+        <div class="sidebar-footer">
+            <button class="refresh-btn" @onclick="LoadAgents" disabled="@isLoading">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="@(isLoading ? "spinning" : "")">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                    <polyline points="21 3 21 9 15 9"/>
+                </svg>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="agent-main">
+        <div class="agent-header">
+            <div class="header-tabs">
+                <button class="tab-btn @(activeTab == "tools" ? "active" : "")" @onclick='() => activeTab = "tools"'>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                    </svg>
+                    Tool Tester
+                </button>
+                <button class="tab-btn @(activeTab == "workflow" ? "active" : "")" @onclick='() => activeTab = "workflow"'>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="16 18 22 12 16 6"/>
+                        <polyline points="8 6 2 12 8 18"/>
+                    </svg>
+                    Workflow
+                </button>
+            </div>
+        </div>
+
+        <div class="agents-content">
+            @if (activeTab == "tools")
+            {
+                <div class="tools-panel">
+                    @if (selectedAgentInfo != null)
+                    {
+                        <div class="selected-agent-header">
+                            <div class="agent-icon-large">
+                                @GetAgentIcon(selectedAgentInfo.Name)
+                            </div>
+                            <div class="agent-details">
+                                <h2>@GetAgentDisplayName(selectedAgentInfo.Name)</h2>
+                                <p class="agent-description">@GetAgentDescription(selectedAgentInfo.Name)</p>
+                            </div>
+                        </div>
+
+                        <div class="tools-grid">
+                            @foreach (var tool in selectedAgentInfo.Tools)
+                            {
+                                <div class="tool-card @(selectedTool == tool.Name ? "selected" : "")" @onclick="() => SelectTool(tool)">
+                                    <div class="tool-name">@tool.Name</div>
+                                    <div class="tool-description">@tool.Description</div>
+                                </div>
+                            }
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(selectedTool))
+                        {
+                            <div class="tool-execution-panel">
+                                <h3>Execute: @selectedTool</h3>
+                                <div class="tool-params">
+                                    @foreach (var param in toolParams)
+                                    {
+                                        <div class="param-input">
+                                            <label>@param.Key</label>
+                                            <input type="text" @bind="toolParams[param.Key]" placeholder="Enter @param.Key..." />
+                                        </div>
+                                    }
+                                </div>
+                                <button class="execute-btn" @onclick="ExecuteTool" disabled="@isExecuting">
+                                    @if (isExecuting)
+                                    {
+                                        <span class="spinner"></span>
+                                        <span>Executing...</span>
+                                    }
+                                    else
+                                    {
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polygon points="5 3 19 12 5 21 5 3"/>
+                                        </svg>
+                                        <span>Execute</span>
+                                    }
+                                </button>
+
+                                @if (lastResult != null)
+                                {
+                                    <div class="result-panel @(lastResult.Success ? "success" : "error")">
+                                        <div class="result-header">
+                                            <span class="result-status">
+                                                @if (lastResult.Success)
+                                                {
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                        <polyline points="20 6 9 17 4 12"/>
+                                                    </svg>
+                                                }
+                                                else
+                                                {
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                        <circle cx="12" cy="12" r="10"/>
+                                                        <line x1="15" y1="9" x2="9" y2="15"/>
+                                                        <line x1="9" y1="9" x2="15" y2="15"/>
+                                                    </svg>
+                                                }
+                                                @(lastResult.Success ? "Success" : "Failed")
+                                            </span>
+                                            <span class="result-time">@lastResult.ExecutionTimeMs ms</span>
+                                        </div>
+                                        <pre class="result-content">@FormatResult(lastResult.Result ?? lastResult.Error)</pre>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="no-selection">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="3"/>
+                                <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                            </svg>
+                            <h3>Select an Agent</h3>
+                            <p>Choose an agent from the sidebar to view and test its tools</p>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="workflow-panel">
+                    <div class="workflow-input">
+                        <h3>Multi-Agent Workflow</h3>
+                        <p>Enter a task and watch the agents collaborate to solve it</p>
+                        <div class="workflow-form">
+                            <textarea @bind="workflowTask" placeholder="Describe your task... e.g., 'Plan and review a feature implementation for user authentication'" rows="3"></textarea>
+                            <button class="execute-btn" @onclick="RunWorkflow" disabled="@isExecuting">
+                                @if (isExecuting)
+                                {
+                                    <span class="spinner"></span>
+                                    <span>Running Workflow...</span>
+                                }
+                                else
+                                {
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="5 3 19 12 5 21 5 3"/>
+                                    </svg>
+                                    <span>Run Workflow</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (workflowResult != null || isExecuting)
+                    {
+                        <div class="workflow-results">
+                            <div class="workflow-summary">
+                                <span class="workflow-task">@(workflowResult?.Task ?? workflowTask)</span>
+                                @if (workflowResult != null)
+                                {
+                                    <span class="workflow-time">Total: @workflowResult.TotalExecutionTimeMs ms</span>
+                                }
+                                else
+                                {
+                                    <span class="workflow-time executing">Executing...</span>
+                                }
+                            </div>
+
+                            <!-- Sequence Diagram View -->
+                            <div class="sequence-diagram">
+                                <h4 class="diagram-title">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M3 3v18h18"/>
+                                        <path d="M18 9l-5 5-4-4-3 3"/>
+                                    </svg>
+                                    Agent Call Sequence
+                                </h4>
+
+                                <!-- Sequence Flow -->
+                                <div class="sequence-flow">
+                                    @{
+                                        var interactions = workflowResult?.Interactions ?? new List<AgentInteraction>();
+                                    }
+                                    @foreach (var interaction in interactions)
+                                    {
+                                        <div class="sequence-call-card @interaction.AgentName @interaction.Status">
+                                            <!-- Step Number and Connector -->
+                                            <div class="call-step-col">
+                                                <div class="call-step-number">@interaction.Step</div>
+                                                <div class="call-connector"></div>
+                                            </div>
+
+                                            <!-- Call Details -->
+                                            <div class="call-details-col">
+                                                <!-- Source to Target Arrow -->
+                                                <div class="call-flow">
+                                                    <div class="call-source">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                                            <path d="M12 8v8M8 12h8"/>
+                                                        </svg>
+                                                        <span>API</span>
+                                                    </div>
+                                                    <div class="call-arrow">
+                                                        <div class="arrow-body"></div>
+                                                        <div class="mcp-badge">
+                                                            <span class="mcp-tag">MCP</span>
+                                                            <span class="mcp-func">@interaction.ToolName</span>
+                                                        </div>
+                                                        <div class="arrow-body"></div>
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                                            <polyline points="9 18 15 12 9 6"/>
+                                                        </svg>
+                                                    </div>
+                                                    <div class="call-target-agent @interaction.AgentName">
+                                                        @GetAgentIcon(interaction.AgentName)
+                                                        <span>@GetAgentDisplayName(interaction.AgentName)</span>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Execution Info -->
+                                                <div class="call-exec-info">
+                                                    <span class="exec-status @interaction.Status">
+                                                        @if (interaction.Status == "success")
+                                                        {
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                                                <polyline points="20 6 9 17 4 12"/>
+                                                            </svg>
+                                                        }
+                                                        else
+                                                        {
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                                                <line x1="6" y1="6" x2="18" y2="18"/>
+                                                            </svg>
+                                                        }
+                                                        @interaction.Status
+                                                    </span>
+                                                    <span class="exec-time">@interaction.ExecutionTimeMs ms</span>
+                                                </div>
+
+                                                <!-- Expandable Result -->
+                                                <div class="call-result-section">
+                                                    <button class="expand-result-btn" @onclick="() => ToggleStepExpansion(interaction.Step)">
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="@(expandedSteps.Contains(interaction.Step) ? "rotated" : "")">
+                                                            <polyline points="9 18 15 12 9 6"/>
+                                                        </svg>
+                                                        @(expandedSteps.Contains(interaction.Step) ? "Hide Result" : "View Result")
+                                                    </button>
+                                                    @if (expandedSteps.Contains(interaction.Step))
+                                                    {
+                                                        <div class="result-content">
+                                                            <pre class="result-json">@FormatResult(interaction.Result)</pre>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (isExecuting && (workflowResult?.Interactions?.Count ?? 0) == 0)
+                                    {
+                                        <div class="sequence-call-card executing">
+                                            <div class="call-step-col">
+                                                <div class="call-step-number">
+                                                    <span class="step-spinner"></span>
+                                                </div>
+                                            </div>
+                                            <div class="call-details-col">
+                                                <div class="executing-indicator">
+                                                    <span class="exec-spinner"></span>
+                                                    <span>Executing workflow...</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            <!-- Call Summary Cards -->
+                            @if (workflowResult != null)
+                            {
+                                <div class="call-summary">
+                                    <h4>Call Summary</h4>
+                                    <div class="summary-grid">
+                                        @foreach (var agentGroup in workflowResult.Interactions.GroupBy(i => i.AgentName))
+                                        {
+                                            <div class="summary-card @agentGroup.Key">
+                                                <div class="summary-card-header">
+                                                    @GetAgentIcon(agentGroup.Key)
+                                                    <span>@GetAgentDisplayName(agentGroup.Key)</span>
+                                                </div>
+                                                <div class="summary-card-body">
+                                                    <div class="summary-stat">
+                                                        <span class="stat-value">@agentGroup.Count()</span>
+                                                        <span class="stat-label">calls</span>
+                                                    </div>
+                                                    <div class="summary-stat">
+                                                        <span class="stat-value">@agentGroup.Sum(i => i.ExecutionTimeMs)</span>
+                                                        <span class="stat-label">ms total</span>
+                                                    </div>
+                                                </div>
+                                                <div class="summary-functions">
+                                                    @foreach (var call in agentGroup)
+                                                    {
+                                                        <div class="function-chip @call.Status">
+                                                            <span class="chip-order">#@call.Step</span>
+                                                            <span class="chip-name">@call.ToolName</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div class="workflow-final">
+                                    <strong>Result:</strong> @workflowResult.FinalResult
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .agent-layout {
+        display: flex;
+        height: 100vh;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        color: #e4e4e4;
+    }
+
+    .agent-sidebar {
+        width: 280px;
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(10px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+    }
+
+    .sidebar-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        margin-bottom: 16px;
+    }
+
+    .brand-icon {
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .brand-text {
+        font-size: 18px;
+        font-weight: 600;
+    }
+
+    .nav-link-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #e4e4e4;
+        text-decoration: none;
+        margin-bottom: 16px;
+        transition: all 0.2s;
+    }
+
+    .nav-link-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .sidebar-section-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #888;
+        margin: 16px 0 8px;
+    }
+
+    .agents-list {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .agent-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-bottom: 4px;
+    }
+
+    .agent-card:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .agent-card.active {
+        background: rgba(102, 126, 234, 0.2);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+    }
+
+    .agent-card-icon {
+        width: 36px;
+        height: 36px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .agent-card-info {
+        flex: 1;
+    }
+
+    .agent-card-name {
+        display: block;
+        font-weight: 500;
+    }
+
+    .agent-card-tools {
+        font-size: 12px;
+        color: #888;
+    }
+
+    .agent-status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #888;
+    }
+
+    .agent-status-indicator.connected {
+        background: #4ade80;
+    }
+
+    .agent-status-indicator.error {
+        background: #f87171;
+    }
+
+    .sidebar-footer {
+        padding-top: 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .refresh-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #e4e4e4;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .refresh-btn:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .spinning {
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    .agent-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .agent-header {
+        padding: 16px 24px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .header-tabs {
+        display: flex;
+        gap: 8px;
+    }
+
+    .tab-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #888;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+        color: #e4e4e4;
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .tab-btn.active {
+        background: rgba(102, 126, 234, 0.2);
+        border-color: rgba(102, 126, 234, 0.3);
+        color: #e4e4e4;
+    }
+
+    .agents-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 24px;
+    }
+
+    .no-selection {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #888;
+        text-align: center;
+    }
+
+    .no-selection svg {
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+
+    .selected-agent-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding: 20px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+    }
+
+    .agent-icon-large {
+        width: 60px;
+        height: 60px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .agent-details h2 {
+        margin: 0 0 4px;
+    }
+
+    .agent-description {
+        color: #888;
+        margin: 0;
+    }
+
+    .tools-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+
+    .tool-card {
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .tool-card:hover {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .tool-card.selected {
+        background: rgba(102, 126, 234, 0.2);
+        border-color: rgba(102, 126, 234, 0.4);
+    }
+
+    .tool-name {
+        font-weight: 600;
+        font-family: monospace;
+        margin-bottom: 8px;
+        color: #a78bfa;
+    }
+
+    .tool-description {
+        font-size: 13px;
+        color: #888;
+    }
+
+    .tool-execution-panel {
+        padding: 20px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+    }
+
+    .tool-execution-panel h3 {
+        margin: 0 0 16px;
+    }
+
+    .tool-params {
+        margin-bottom: 16px;
+    }
+
+    .param-input {
+        margin-bottom: 12px;
+    }
+
+    .param-input label {
+        display: block;
+        font-size: 13px;
+        color: #888;
+        margin-bottom: 4px;
+    }
+
+    .param-input input {
+        width: 100%;
+        padding: 10px 14px;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        color: #e4e4e4;
+        font-size: 14px;
+    }
+
+    .param-input input:focus {
+        outline: none;
+        border-color: rgba(102, 126, 234, 0.5);
+    }
+
+    .execute-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 12px 24px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .execute-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .execute-btn:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+
+    .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    .result-panel {
+        margin-top: 16px;
+        padding: 16px;
+        border-radius: 8px;
+        border: 1px solid;
+    }
+
+    .result-panel.success {
+        background: rgba(74, 222, 128, 0.1);
+        border-color: rgba(74, 222, 128, 0.3);
+    }
+
+    .result-panel.error {
+        background: rgba(248, 113, 113, 0.1);
+        border-color: rgba(248, 113, 113, 0.3);
+    }
+
+    .result-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .result-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+    }
+
+    .result-time {
+        font-size: 12px;
+        color: #888;
+    }
+
+    .result-content {
+        margin: 0;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 6px;
+        font-size: 13px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .workflow-panel {
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    .workflow-input h3 {
+        margin: 0 0 8px;
+    }
+
+    .workflow-input p {
+        color: #888;
+        margin: 0 0 16px;
+    }
+
+    .workflow-form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .workflow-form textarea {
+        padding: 14px;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #e4e4e4;
+        font-size: 14px;
+        resize: vertical;
+    }
+
+    .workflow-form textarea:focus {
+        outline: none;
+        border-color: rgba(102, 126, 234, 0.5);
+    }
+
+    .workflow-results {
+        margin-top: 32px;
+    }
+
+    .workflow-summary {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 8px;
+        margin-bottom: 24px;
+    }
+
+    .workflow-task {
+        font-weight: 500;
+    }
+
+    .workflow-time {
+        color: #888;
+    }
+
+    .interactions-timeline {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .interaction-card {
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        position: relative;
+    }
+
+    .interaction-card.success {
+        border-left: 3px solid #4ade80;
+    }
+
+    .interaction-card.failed {
+        border-left: 3px solid #f87171;
+    }
+
+    .interaction-step {
+        position: absolute;
+        top: -10px;
+        left: 16px;
+        padding: 2px 8px;
+        background: #667eea;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    .interaction-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .interaction-agent {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+    }
+
+    .interaction-tool {
+        font-family: monospace;
+        color: #a78bfa;
+    }
+
+    .interaction-time {
+        font-size: 12px;
+        color: #888;
+        margin-bottom: 8px;
+    }
+
+    .interaction-result pre {
+        margin: 0;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 6px;
+        font-size: 12px;
+        overflow-x: auto;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
+    .workflow-final {
+        margin-top: 24px;
+        padding: 16px;
+        background: rgba(102, 126, 234, 0.1);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        border-radius: 8px;
+    }
+
+    .workflow-time.executing {
+        color: #667eea;
+        animation: pulse-text 1.5s infinite;
+    }
+
+    @@keyframes pulse-text {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    /* ============================================
+       SEQUENCE DIAGRAM STYLES
+       ============================================ */
+
+    .sequence-diagram {
+        margin-top: 24px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 12px;
+        padding: 20px;
+    }
+
+    .diagram-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 20px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #a78bfa;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .sequence-flow {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .sequence-call-card {
+        display: flex;
+        gap: 16px;
+        padding: 0;
+    }
+
+    .sequence-call-card.planner { --agent-color: #667eea; }
+    .sequence-call-card.reviewer { --agent-color: #22c55e; }
+    .sequence-call-card.research { --agent-color: #f59e0b; }
+    .sequence-call-card.code { --agent-color: #ec4899; }
+
+    .call-step-col {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 40px;
+        flex-shrink: 0;
+    }
+
+    .call-step-number {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, var(--agent-color, #667eea) 0%, #764ba2 100%);
+        border-radius: 50%;
+        font-size: 13px;
+        font-weight: 700;
+        color: white;
+        flex-shrink: 0;
+        z-index: 2;
+    }
+
+    .call-connector {
+        flex: 1;
+        width: 2px;
+        background: linear-gradient(180deg, var(--agent-color, #667eea) 0%, rgba(118, 75, 162, 0.3) 100%);
+        min-height: 20px;
+    }
+
+    .sequence-call-card:last-child .call-connector {
+        display: none;
+    }
+
+    .call-details-col {
+        flex: 1;
+        padding: 0 0 20px 0;
+        border-left: 1px dashed rgba(255, 255, 255, 0.1);
+        padding-left: 16px;
+    }
+
+    .call-flow {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+    }
+
+    .call-source {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: rgba(102, 126, 234, 0.15);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 500;
+        color: #a5b4fc;
+    }
+
+    .call-arrow {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--agent-color, #a78bfa);
+    }
+
+    .arrow-body {
+        width: 20px;
+        height: 2px;
+        background: currentColor;
+    }
+
+    .mcp-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        background: rgba(167, 139, 250, 0.15);
+        border: 1px solid rgba(167, 139, 250, 0.3);
+        border-radius: 16px;
+    }
+
+    .mcp-tag {
+        font-size: 9px;
+        font-weight: 700;
+        color: #a78bfa;
+        background: rgba(167, 139, 250, 0.3);
+        padding: 2px 5px;
+        border-radius: 4px;
+        letter-spacing: 0.5px;
+    }
+
+    .mcp-func {
+        font-size: 12px;
+        font-family: 'Fira Code', 'Consolas', monospace;
+        font-weight: 600;
+        color: #e4e4e4;
+    }
+
+    .call-target-agent {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--agent-color, rgba(255, 255, 255, 0.2));
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .call-target-agent.planner {
+        background: rgba(102, 126, 234, 0.15);
+        border-color: rgba(102, 126, 234, 0.4);
+    }
+    .call-target-agent.reviewer {
+        background: rgba(34, 197, 94, 0.15);
+        border-color: rgba(34, 197, 94, 0.4);
+    }
+    .call-target-agent.research {
+        background: rgba(245, 158, 11, 0.15);
+        border-color: rgba(245, 158, 11, 0.4);
+    }
+    .call-target-agent.code {
+        background: rgba(236, 72, 153, 0.15);
+        border-color: rgba(236, 72, 153, 0.4);
+    }
+
+    .call-exec-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+
+    .exec-status {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 4px;
+        text-transform: uppercase;
+    }
+
+    .exec-status.success {
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+    }
+
+    .exec-status.failed {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+    }
+
+    .exec-time {
+        font-size: 11px;
+        font-family: monospace;
+        color: #888;
+        padding: 3px 8px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+
+    .call-result-section {
+        margin-top: 8px;
+    }
+
+    .expand-result-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        color: #888;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .expand-result-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #e4e4e4;
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .expand-result-btn svg {
+        transition: transform 0.2s;
+    }
+
+    .expand-result-btn svg.rotated {
+        transform: rotate(90deg);
+    }
+
+    .result-content {
+        margin-top: 10px;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .result-json {
+        margin: 0;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 6px;
+        font-size: 11px;
+        font-family: 'Fira Code', 'Consolas', monospace;
+        overflow-x: auto;
+        max-height: 200px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #c4b5fd;
+    }
+
+    .step-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    .exec-spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    .executing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        background: rgba(102, 126, 234, 0.15);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        border-radius: 8px;
+        font-size: 13px;
+        color: #a5b4fc;
+    }
+
+    /* ============================================
+       CALL SUMMARY STYLES
+       ============================================ */
+
+    .call-summary {
+        margin-top: 24px;
+    }
+
+    .call-summary h4 {
+        margin: 0 0 16px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+    }
+
+    .summary-card {
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .summary-card.planner {
+        border-left: 3px solid #667eea;
+    }
+
+    .summary-card.reviewer {
+        border-left: 3px solid #22c55e;
+    }
+
+    .summary-card.research {
+        border-left: 3px solid #f59e0b;
+    }
+
+    .summary-card.code {
+        border-left: 3px solid #ec4899;
+    }
+
+    .summary-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        font-weight: 600;
+    }
+
+    .summary-card-body {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 12px;
+    }
+
+    .summary-stat {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .stat-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: #e4e4e4;
+    }
+
+    .stat-label {
+        font-size: 10px;
+        color: #888;
+        text-transform: uppercase;
+    }
+
+    .summary-functions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .function-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+        font-size: 10px;
+    }
+
+    .function-chip.success {
+        background: rgba(34, 197, 94, 0.15);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .function-chip.failed {
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .chip-order {
+        font-weight: 700;
+        color: #667eea;
+    }
+
+    .chip-name {
+        font-family: monospace;
+        color: #e4e4e4;
+    }
+</style>
+
+@code {
+    private List<AgentInfo> agents = [];
+    private string selectedAgent = "";
+    private AgentInfo? selectedAgentInfo;
+    private string selectedTool = "";
+    private Dictionary<string, string> toolParams = [];
+    private bool isLoading = false;
+    private bool isExecuting = false;
+    private string activeTab = "tools";
+    private string workflowTask = "";
+    private AgentCallResponse? lastResult;
+    private AgentWorkflowResponse? workflowResult;
+    private HashSet<int> expandedSteps = new();
+
+    // Available agents for sequence diagram lanes
+    private static readonly string[] AllAgents = ["planner", "reviewer", "research", "code"];
+
+    private IEnumerable<string> GetUniqueAgents()
+    {
+        if (workflowResult?.Interactions?.Any() == true)
+        {
+            return workflowResult.Interactions.Select(i => i.AgentName).Distinct();
+        }
+        return AllAgents;
+    }
+
+    private void ToggleStepExpansion(int step)
+    {
+        if (!expandedSteps.Remove(step))
+        {
+            expandedSteps.Add(step);
+        }
+    }
+
+    private string GetArrowStyle(string agentName)
+    {
+        var agents = GetUniqueAgents().ToList();
+        var index = agents.IndexOf(agentName);
+        // Calculate arrow width based on agent position
+        var widthPercent = ((index + 1) * 100) / (agents.Count + 1);
+        return $"--arrow-width: {widthPercent}%;";
+    }
+
+    private string GetAgentColor(string name) => name switch
+    {
+        "planner" => "#667eea",
+        "reviewer" => "#22c55e",
+        "research" => "#f59e0b",
+        "code" => "#ec4899",
+        _ => "#888"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAgents();
+    }
+
+    private async Task LoadAgents()
+    {
+        isLoading = true;
+        try
+        {
+            agents = await ChatClient.GetAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading agents: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SelectAgent(AgentInfo agent)
+    {
+        selectedAgent = agent.Name;
+        selectedAgentInfo = agent;
+        selectedTool = "";
+        toolParams.Clear();
+        lastResult = null;
+    }
+
+    private void SelectTool(AgentTool tool)
+    {
+        selectedTool = tool.Name;
+        lastResult = null;
+
+        // Set up default parameters based on tool name
+        toolParams.Clear();
+        switch (tool.Name)
+        {
+            case "create_plan":
+            case "assess_complexity":
+            case "suggest_agents":
+                toolParams["task"] = "";
+                break;
+            case "search_knowledge":
+            case "suggest_topics":
+                toolParams["query"] = "";
+                break;
+            case "get_topic_details":
+                toolParams["topic"] = "";
+                break;
+            case "gather_context":
+                toolParams["topics"] = "";
+                break;
+            case "compare_topics":
+                toolParams["topic1"] = "";
+                toolParams["topic2"] = "";
+                break;
+            case "review_response":
+                toolParams["originalPrompt"] = "";
+                toolParams["response"] = "";
+                break;
+            case "review_code":
+                toolParams["code"] = "";
+                toolParams["language"] = "csharp";
+                break;
+            case "review_plan":
+                toolParams["planJson"] = "";
+                break;
+            case "execute_csharp":
+                toolParams["code"] = "";
+                break;
+            case "generate_code":
+                toolParams["description"] = "";
+                toolParams["language"] = "csharp";
+                break;
+            case "analyze_code":
+            case "format_code":
+                toolParams["code"] = "";
+                break;
+            case "generate_tests":
+                toolParams["code"] = "";
+                toolParams["framework"] = "xunit";
+                break;
+            default:
+                // Generic parameter
+                toolParams["input"] = "";
+                break;
+        }
+    }
+
+    private async Task ExecuteTool()
+    {
+        if (string.IsNullOrEmpty(selectedAgent) || string.IsNullOrEmpty(selectedTool))
+            return;
+
+        isExecuting = true;
+        try
+        {
+            var request = new AgentCallRequest
+            {
+                AgentName = selectedAgent,
+                ToolName = selectedTool,
+                Arguments = toolParams.ToDictionary(p => p.Key, p => (object?)p.Value)
+            };
+
+            lastResult = await ChatClient.CallAgentToolAsync(request);
+        }
+        catch (Exception ex)
+        {
+            lastResult = new AgentCallResponse
+            {
+                AgentName = selectedAgent,
+                ToolName = selectedTool,
+                Success = false,
+                Error = ex.Message
+            };
+        }
+        finally
+        {
+            isExecuting = false;
+        }
+    }
+
+    private async Task RunWorkflow()
+    {
+        if (string.IsNullOrWhiteSpace(workflowTask))
+            return;
+
+        isExecuting = true;
+        workflowResult = null;
+        expandedSteps.Clear();
+
+        try
+        {
+            var request = new AgentWorkflowRequest { Task = workflowTask };
+            workflowResult = await ChatClient.RunWorkflowAsync(request);
+        }
+        catch (Exception ex)
+        {
+            workflowResult = new AgentWorkflowResponse
+            {
+                Task = workflowTask,
+                FinalResult = $"Error: {ex.Message}",
+                Interactions = []
+            };
+        }
+        finally
+        {
+            isExecuting = false;
+        }
+    }
+
+    private string GetAgentDisplayName(string name) => name switch
+    {
+        "planner" => "Planner Agent",
+        "reviewer" => "Reviewer Agent",
+        "research" => "Research Agent",
+        "code" => "Code Agent",
+        _ => name
+    };
+
+    private string GetAgentDescription(string name) => name switch
+    {
+        "planner" => "Breaks down complex tasks into actionable steps and coordinates multi-agent workflows",
+        "reviewer" => "Reviews and validates content, code, and responses for quality assurance",
+        "research" => "Gathers information, searches knowledge bases, and provides context",
+        "code" => "Code generation, execution, analysis, and testing",
+        _ => ""
+    };
+
+    private MarkupString GetAgentIcon(string name)
+    {
+        var svg = name switch
+        {
+            "planner" => """<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6"/><path d="M9 16h6"/></svg>""",
+            "reviewer" => """<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>""",
+            "research" => """<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>""",
+            "code" => """<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>""",
+            _ => """<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>"""
+        };
+        return new MarkupString(svg);
+    }
+
+    private string FormatResult(object? result)
+    {
+        if (result == null) return "null";
+
+        try
+        {
+            if (result is JsonElement element)
+            {
+                return JsonSerializer.Serialize(element, new JsonSerializerOptions { WriteIndented = true });
+            }
+            return result.ToString() ?? "null";
+        }
+        catch
+        {
+            return result.ToString() ?? "null";
+        }
+    }
+}

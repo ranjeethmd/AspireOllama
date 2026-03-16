@@ -12,6 +12,10 @@
     <ProjectReference Include="..\AspireOllama.ApiService\AspireOllama.ApiService.csproj" />
     <ProjectReference Include="..\AspireOllama.McpServer\AspireOllama.McpServer.csproj" />
     <ProjectReference Include="..\AspireOllama.Web\AspireOllama.Web.csproj" />
+    <ProjectReference Include="..\A2A\AspireOllama.A2A.PlannerAgent\AspireOllama.A2A.PlannerAgent.csproj" />
+    <ProjectReference Include="..\A2A\AspireOllama.A2A.ReviewerAgent\AspireOllama.A2A.ReviewerAgent.csproj" />
+    <ProjectReference Include="..\A2A\AspireOllama.A2A.ResearchAgent\AspireOllama.A2A.ResearchAgent.csproj" />
+    <ProjectReference Include="..\A2A\AspireOllama.A2A.CodeAgent\AspireOllama.A2A.CodeAgent.csproj" />
   </ItemGroup>
 
   <ItemGroup>

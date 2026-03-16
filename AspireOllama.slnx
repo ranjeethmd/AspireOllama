@@ -4,5 +4,13 @@
   <Project Path="AspireOllama.McpServer/AspireOllama.McpServer.csproj" />
   <Project Path="AspireOllama.ServiceDefaults/AspireOllama.ServiceDefaults.csproj" />
   <Project Path="AspireOllama.Shared/AspireOllama.Shared.csproj" />
+  <Project Path="AspireOllama.Tests.UI/AspireOllama.Tests.UI.csproj" />
   <Project Path="AspireOllama.Web/AspireOllama.Web.csproj" />
+  <Folder Name="/A2A/">
+    <Project Path="A2A/AspireOllama.A2A.PlannerAgent/AspireOllama.A2A.PlannerAgent.csproj" />
+    <Project Path="A2A/AspireOllama.A2A.ReviewerAgent/AspireOllama.A2A.ReviewerAgent.csproj" />
+    <Project Path="A2A/AspireOllama.A2A.ResearchAgent/AspireOllama.A2A.ResearchAgent.csproj" />
+    <Project Path="A2A/AspireOllama.A2A.CodeAgent/AspireOllama.A2A.CodeAgent.csproj" />
+    <Project Path="A2A/AspireOllama.A2A.Shared/AspireOllama.A2A.Shared.csproj" />
+  </Folder>
 </Solution>

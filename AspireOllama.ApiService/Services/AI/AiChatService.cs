@@ -60,7 +60,7 @@ public class AiChatService : IAiChatService
         messages.Add(userMessage);
 
         // Choose model based on whether images are present
-        var hasImages = request.Images != null && request.Images.Count > 0;
+        var hasImages = request.Images is not null && request.Images.Count > 0;
         var client = hasImages ? _visionClient : _toolClient;
         var modelName = hasImages ? "llava (vision)" : "llama3.1 (tools)";
 
@@ -88,7 +88,7 @@ public class AiChatService : IAiChatService
         messages.Add(userMessage);
 
         // Check if images are present - use vision model without tools
-        var hasImages = request.Images != null && request.Images.Count > 0;
+        var hasImages = request.Images is not null && request.Images.Count > 0;
 
         if (hasImages)
         {
@@ -167,7 +167,7 @@ public class AiChatService : IAiChatService
                 else if (content is FunctionResultContent functionResult)
                 {
                     var existingCall = toolCalls.FirstOrDefault(tc => tc.Id == functionResult.CallId);
-                    if (existingCall != null)
+                    if (existingCall is not null)
                     {
                         existingCall.Result = functionResult.Result?.ToString() ?? "(no result)";
                         existingCall.Status = ToolCallStatus.Completed;
@@ -208,7 +208,7 @@ public class AiChatService : IAiChatService
 
             // Re-extract document content for historical messages
             // This ensures AI has full context even after app restart
-            if (msg.Role == "user" && msg.Files != null && msg.Files.Count > 0)
+            if (msg.Role == "user" && msg.Files is not null && msg.Files.Count > 0)
             {
                 var docTexts = new List<string>();
                 foreach (var file in msg.Files)
@@ -239,7 +239,7 @@ public class AiChatService : IAiChatService
         var contentParts = new List<AIContent>();
 
         // Process images - sent as binary data for vision model
-        if (request.Images != null && request.Images.Count > 0)
+        if (request.Images is not null && request.Images.Count > 0)
         {
             _logger.LogInformation("Processing {Count} images", request.Images.Count);
             foreach (var image in request.Images)
@@ -256,7 +256,7 @@ public class AiChatService : IAiChatService
 
         // Process documents - extract text content
         var documentTexts = new List<string>();
-        if (request.Files != null && request.Files.Count > 0)
+        if (request.Files is not null && request.Files.Count > 0)
         {
             _logger.LogInformation("Processing {Count} documents", request.Files.Count);
             foreach (var file in request.Files)

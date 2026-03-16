@@ -13,9 +13,10 @@ This document provides a comprehensive visual overview of the AspireOllama archi
 5. [Model Selection Flow](#model-selection-flow)
 6. [Tool Calling Flow](#tool-calling-flow)
 7. [MCP Integration Flow](#mcp-integration-flow)
-8. [Session & Message Flow](#session--message-flow)
-9. [Data Persistence Flow](#data-persistence-flow)
-10. [Service Dependencies](#service-dependencies)
+8. [A2A Agent Architecture](#a2a-agent-architecture)
+9. [Session & Message Flow](#session--message-flow)
+10. [Data Persistence Flow](#data-persistence-flow)
+11. [Service Dependencies](#service-dependencies)
 
 ---
 
@@ -38,11 +39,13 @@ AspireOllama is a distributed AI chat application with the following key capabil
 │   └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘    │
 │                                                                             │
 │   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐    │
-│   │  Session    │   │   Local     │   │   Cloud     │   │   Modern    │    │
-│   │ Management  │   │    LLM      │   │   Native    │   │    UI       │    │
+│   │    A2A      │   │   Local     │   │   Cloud     │   │   Modern    │    │
+│   │   Agents    │   │    LLM      │   │   Native    │   │    UI       │    │
 │   │             │   │             │   │             │   │             │    │
-│   │  Persist    │   │   Ollama    │   │   Aspire    │   │   Dark      │    │
-│   │   chats     │   │   GPU       │   │  Discovery  │   │   Theme     │    │
+│   │  Planner    │   │   Ollama    │   │   Aspire    │   │   Dark      │    │
+│   │  Reviewer   │   │   GPU       │   │  Discovery  │   │   Theme     │    │
+│   │  Research   │   │             │   │             │   │             │    │
+│   │  Code       │   │             │   │             │   │             │    │
 │   └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -576,6 +579,153 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │    └─────────────────────────────────────────────────────────────┘  │
     │                                                                     │
     └─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## A2A Agent Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    AGENT-TO-AGENT (A2A) PROTOCOL ARCHITECTURE               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+                              A2A PROTOCOL LAYER
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                                                                     │
+    │   Each agent exposes:                                               │
+    │   • GET  /.well-known/agent.json  (Agent Card - discovery)          │
+    │   • POST /a2a/message:send        (Send message, get task)          │
+    │   • GET  /a2a/tasks/{id}          (Get task status/results)         │
+    │   • POST /a2a/tasks/{id}:cancel   (Cancel running task)             │
+    │                                                                     │
+    └─────────────────────────────────────────────────────────────────────┘
+                                      │
+         ┌───────────────┬────────────┼────────────┬───────────────┐
+         │               │            │            │               │
+         ▼               ▼            ▼            ▼               │
+    ┌─────────┐     ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+    │ Planner │◄───►│Reviewer │◄─┤Research │◄─┤  Code   │          │
+    │  Agent  │     │  Agent  │  │  Agent  │  │  Agent  │          │
+    └────┬────┘     └────┬────┘  └────┬────┘  └────┬────┘          │
+         │               │            │            │               │
+         │ Skills:       │ Skills:    │ Skills:    │ Skills:       │
+         │ create_plan   │ review_    │ search_    │ execute_      │
+         │ assess_       │  response  │  knowledge │  csharp       │
+         │  complexity   │ review_    │ get_topic_ │ generate_     │
+         │ suggest_      │  code      │  details   │  code         │
+         │  agents       │ provide_   │ gather_    │ analyze_      │
+         │ orchestrate_  │  feedback  │  context   │  code         │
+         │  workflow     │            │ suggest_   │ generate_     │
+         │               │            │  topics    │  tests        │
+         │               │            │            │ refactor_     │
+         │               │            │            │  code         │
+         └───────────────┴────────────┴────────────┘               │
+                                      │                            │
+                              ┌───────▼───────┐                    │
+                              │    Ollama     │◄───────────────────┘
+                              │   (llama3.1)  │
+                              └───────────────┘
+```
+
+### Agent Card Structure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           AGENT CARD (/.well-known/agent.json)              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    {
+      "name": "Planner Agent",
+      "description": "AI-powered task planning and orchestration",
+      "version": "2.0.0",
+      "url": "http://planner-agent",
+      "provider": { "organization": "AspireOllama" },
+      "capabilities": { "streaming": false, "pushNotifications": false },
+      "skills": [
+        {
+          "id": "create_plan",
+          "name": "Create Plan",
+          "description": "Breaks complex tasks into steps",
+          "tags": ["planning", "orchestration"],
+          "examples": ["Create a plan for building a REST API"]
+        }
+      ],
+      "defaultInputModes": ["text/plain"],
+      "defaultOutputModes": ["text/plain", "application/json"]
+    }
+```
+
+### A2A Task Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             A2A TASK LIFECYCLE                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+    ┌──────────────┐
+    │   SUBMITTED  │  ◄──── POST /a2a/message:send
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │   WORKING    │  ◄──── Agent processing (may call other agents)
+    └──────┬───────┘
+           │
+           ├──────────────────────────────┐
+           │                              │
+           ▼                              ▼
+    ┌──────────────┐               ┌──────────────┐
+    │  COMPLETED   │               │    FAILED    │
+    │              │               │              │
+    │  Artifacts:  │               │  Error msg   │
+    │  - Results   │               │              │
+    │  - History   │               │              │
+    └──────────────┘               └──────────────┘
+
+
+    Other states: CANCELED, INPUT_REQUIRED, AUTH_REQUIRED
+```
+
+### Inter-Agent Communication Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         MULTI-AGENT WORKFLOW EXAMPLE                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+    User Request: "Build a REST API with authentication"
+          │
+          ▼
+    ┌──────────────────────────────────────────────────────────────────────┐
+    │                         PLANNER AGENT                                │
+    │   1. Assess complexity                                               │
+    │   2. Call Research Agent for context                                 │
+    │   3. Create detailed plan                                            │
+    │   4. Call Reviewer Agent to validate plan                            │
+    └──────────────────────────────────────┬───────────────────────────────┘
+                                           │
+              ┌────────────────────────────┼────────────────────────────┐
+              │                            │                            │
+              ▼                            ▼                            ▼
+    ┌─────────────────┐          ┌─────────────────┐          ┌─────────────────┐
+    │ RESEARCH AGENT  │          │ REVIEWER AGENT  │          │   CODE AGENT    │
+    │ gather_context  │          │ review_plan     │          │ generate_code   │
+    └────────┬────────┘          └────────┬────────┘          └────────┬────────┘
+             │                            │                            │
+             └────────────────────────────┼────────────────────────────┘
+                                          │
+                                          ▼
+                               ┌─────────────────────┐
+                               │   PLANNER AGENT     │
+                               │   Combines results  │
+                               │   Returns complete  │
+                               │   task with all     │
+                               │   artifacts         │
+                               └─────────────────────┘
 ```
 
 ---

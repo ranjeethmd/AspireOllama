@@ -30,7 +30,7 @@ public class ChatMessageService : IChatMessageService
         };
 
         // Serialize image attachments to JSON for storage
-        if (images != null && images.Count > 0)
+        if (images is not null && images.Count > 0)
         {
             message.SetImages(images.Select(i => new ImageAttachmentData
             {
@@ -41,7 +41,7 @@ public class ChatMessageService : IChatMessageService
         }
 
         // Serialize file attachments to JSON for storage
-        if (files != null && files.Count > 0)
+        if (files is not null && files.Count > 0)
         {
             message.SetFiles(files.Select(f => new FileAttachmentData
             {

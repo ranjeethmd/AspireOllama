@@ -8,6 +8,8 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 - **Vision-Enabled AI Chat** - Upload images and get AI-powered analysis using the llava vision model
 - **Tool Calling** - Automatic function invocation with llama3.1 for calculations, time queries, weather, and more
 - **MCP Integration** - Connect to external MCP servers for extensible tool support
+- **A2A Protocol** - Agent-to-Agent communication with standardized discovery, task management, and peer-to-peer messaging
+- **Multi-Agent System** - Specialized AI agents (Planner, Reviewer, Research, Code) that collaborate on complex tasks
 - **Document Analysis** - Upload and analyze PDF, Word, Excel, PowerPoint, and text files
 - **Persistent Chat History** - SQLite-backed session storage with full conversation history
 - **Session Management** - Create, switch, and delete chat sessions with visual status indicators
@@ -35,17 +37,28 @@ AspireOllama/
 ├── AspireOllama.McpServer/       # External MCP server with sample tools
 ├── AspireOllama.Web/             # Blazor Server frontend
 ├── AspireOllama.Shared/          # Shared DTOs
-└── AspireOllama.ServiceDefaults/ # Common service configuration
+├── AspireOllama.ServiceDefaults/ # Common service configuration
+└── A2A/                          # Agent-to-Agent protocol agents
+    ├── AspireOllama.A2A.Shared/      # Shared A2A models and client
+    ├── AspireOllama.A2A.PlannerAgent/  # Task planning and orchestration
+    ├── AspireOllama.A2A.ReviewerAgent/ # Quality review and validation
+    ├── AspireOllama.A2A.ResearchAgent/ # Knowledge gathering and context
+    └── AspireOllama.A2A.CodeAgent/     # Code generation and execution
 ```
 
 | Project | Description |
 |---------|-------------|
-| `AspireOllama.AppHost` | .NET Aspire orchestrator - manages Ollama, MCP Server, API, and Web services |
+| `AspireOllama.AppHost` | .NET Aspire orchestrator - manages Ollama, MCP Server, API, A2A Agents, and Web services |
 | `AspireOllama.ApiService` | Backend API with chat endpoints, tool calling, MCP client, and SQLite persistence |
 | `AspireOllama.McpServer` | HTTP-based MCP server exposing weather, time, and conversion tools |
 | `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI and file upload |
 | `AspireOllama.Shared` | Shared DTOs for API communication including tool call models |
 | `AspireOllama.ServiceDefaults` | Common service configuration and health checks |
+| `A2A/AspireOllama.A2A.Shared` | Shared A2A protocol models, agent client, and server base class |
+| `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and multi-agent workflow orchestration |
+| `A2A/AspireOllama.A2A.ReviewerAgent` | Quality assurance agent for reviewing responses and code |
+| `A2A/AspireOllama.A2A.ResearchAgent` | Knowledge gathering and context synthesis agent |
+| `A2A/AspireOllama.A2A.CodeAgent` | Code generation, execution, analysis, and testing agent |
 
 For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -120,6 +133,39 @@ The external MCP server provides additional tools:
 - "What's the weather in London?" → Uses MCP get_weather tool
 - "What time is it in Tokyo?" → Uses MCP get_time tool
 - "Convert 100 km to miles" → Uses MCP convert_units tool
+
+## A2A Agents
+
+AspireOllama includes specialized AI agents that communicate via the [Agent-to-Agent (A2A) Protocol](https://github.com/google/a2a-protocol). Each agent exposes standardized endpoints for discovery and task management.
+
+### Agent Capabilities
+
+| Agent | Description | Skills |
+|-------|-------------|--------|
+| **Planner** | Task planning and workflow orchestration | create_plan, assess_complexity, suggest_agents, orchestrate_workflow |
+| **Reviewer** | Quality assurance and validation | review_response, review_code, provide_feedback |
+| **Research** | Knowledge gathering and context synthesis | search_knowledge, get_topic_details, gather_context, suggest_topics |
+| **Code** | Code generation, execution, and analysis | execute_csharp, generate_code, analyze_code, generate_tests, refactor_code |
+
+### A2A Endpoints
+
+Each agent exposes:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /.well-known/agent.json` | Agent Card - describes capabilities, skills, and metadata |
+| `POST /a2a/message:send` | Send a message to the agent and receive a task |
+| `GET /a2a/tasks/{taskId}` | Get task status and results |
+| `POST /a2a/tasks/{taskId}:cancel` | Cancel a running task |
+
+### Inter-Agent Communication
+
+Agents can discover and call each other directly:
+- **Planner** calls Research for context and Reviewer for validation
+- **Code** calls Reviewer for code review feedback
+- All agents use Aspire service discovery for URL resolution
+
+For detailed A2A documentation, see [A2A/README.md](A2A/README.md).
 
 ### Tool Configuration
 

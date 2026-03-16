@@ -21,7 +21,16 @@
       "Bash(cmd //c \"taskkill /F /IM AspireOllama.AppHost.exe 2>nul & taskkill /F /IM AspireOllama.ApiService.exe 2>nul & taskkill /F /IM AspireOllama.Web.exe 2>nul & exit /b 0\")",
       "Bash(findstr:*)",
       "Bash(del \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\AspireOllama.ApiService\\\\Services\\\\DocumentProcessingService.cs\")",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(APP_URL=\"https://localhost:7059\" dotnet test:*)",
+      "Bash(Remove-Item -Path \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.PlannerAgent\\\\bin\" -Recurse -Force -ErrorAction SilentlyContinue)",
+      "Bash(Remove-Item -Path \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.ReviewerAgent\\\\bin\" -Recurse -Force -ErrorAction SilentlyContinue)",
+      "Bash(Remove-Item -Path \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.ResearchAgent\\\\bin\" -Recurse -Force -ErrorAction SilentlyContinue)",
+      "Bash(Remove-Item -Path \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.CodeAgent\\\\bin\" -Recurse -Force -ErrorAction SilentlyContinue)",
+      "Bash(Write-Output \"Cleaned\")",
+      "WebFetch(domain:a2a-protocol.org)",
+      "WebFetch(domain:github.com)",
+      "Bash(del \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.PlannerAgent\\\\PlannerTools.cs\")"
     ]
   }
 }

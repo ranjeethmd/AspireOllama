@@ -118,7 +118,7 @@ public class DocumentProcessingService : IDocumentProcessingService
         using var doc = WordprocessingDocument.Open(stream, false);
 
         var body = doc.MainDocumentPart?.Document?.Body;
-        if (body != null)
+        if (body is not null)
         {
             foreach (var paragraph in body.Elements<Paragraph>())
             {
@@ -179,7 +179,7 @@ public class DocumentProcessingService : IDocumentProcessingService
 
         var value = cell.CellValue.Text;
 
-        if (cell.DataType?.Value == CellValues.SharedString && sharedStrings != null)
+        if (cell.DataType?.Value == CellValues.SharedString && sharedStrings is not null)
         {
             if (int.TryParse(value, out var index))
             {

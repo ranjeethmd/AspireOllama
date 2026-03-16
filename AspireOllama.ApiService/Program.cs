@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Data;
+using AspireOllama.ApiService.Services.A2A;
 using AspireOllama.ApiService.Services.AI;
 using AspireOllama.ApiService.Services.Document;
 using AspireOllama.ApiService.Services.Mcp;
@@ -96,6 +97,32 @@ builder.Services.AddSingleton<IToolRegistry, ToolRegistry>();
 
 // MCP service (connects to external MCP servers as client)
 builder.Services.AddSingleton<IMcpService, McpService>();
+
+// ============================================================
+// A2A Agent Configuration
+// ============================================================
+
+// HTTP clients for A2A agents - uses Aspire service discovery
+// Using http:// scheme - Aspire will resolve the service name
+builder.Services.AddHttpClient("planner", client =>
+{
+    client.BaseAddress = new Uri("http://planner-agent");
+});
+builder.Services.AddHttpClient("reviewer", client =>
+{
+    client.BaseAddress = new Uri("http://reviewer-agent");
+});
+builder.Services.AddHttpClient("research", client =>
+{
+    client.BaseAddress = new Uri("http://research-agent");
+});
+builder.Services.AddHttpClient("code", client =>
+{
+    client.BaseAddress = new Uri("http://code-agent");
+});
+
+// A2A service (coordinates agent-to-agent communication)
+builder.Services.AddSingleton<IA2AService, A2AService>();
 
 // ============================================================
 // API Configuration

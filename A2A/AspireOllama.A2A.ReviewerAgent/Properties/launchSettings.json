@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "AspireOllama.A2A.ReviewerAgent": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:49152;http://localhost:49153"
+    }
+  }
+}

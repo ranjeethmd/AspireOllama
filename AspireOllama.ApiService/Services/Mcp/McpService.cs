@@ -102,7 +102,7 @@ public class McpService : IMcpService, IAsyncDisposable
                 _logger.LogWarning(ex, "Failed to connect to MCP server: {Name} (attempt {Attempt}/{MaxRetries}). Error: {Error}",
                     name, attempt, maxRetries, ex.Message);
 
-                if (ex.InnerException != null)
+                if (ex.InnerException is not null)
                 {
                     _logger.LogWarning("Inner exception: {InnerError}", ex.InnerException.Message);
                 }

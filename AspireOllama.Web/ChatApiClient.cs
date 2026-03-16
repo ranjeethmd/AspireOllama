@@ -62,4 +62,39 @@ public class ChatApiClient(HttpClient httpClient)
         var response = await httpClient.DeleteAsync($"/sessions/{sessionId}", cancellationToken);
         return response.IsSuccessStatusCode;
     }
+
+    // ============================================================
+    // A2A Agent Operations
+    // ============================================================
+
+    /// <summary>
+    /// Gets all available A2A agents and their tools.
+    /// </summary>
+    public async Task<List<AgentInfo>> GetAgentsAsync(CancellationToken cancellationToken = default)
+    {
+        return await httpClient.GetFromJsonAsync<List<AgentInfo>>("/agents", cancellationToken)
+            ?? [];
+    }
+
+    /// <summary>
+    /// Calls a specific tool on an A2A agent.
+    /// </summary>
+    public async Task<AgentCallResponse> CallAgentToolAsync(AgentCallRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PostAsJsonAsync("/agents/call", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<AgentCallResponse>(cancellationToken)
+            ?? new AgentCallResponse();
+    }
+
+    /// <summary>
+    /// Runs a multi-agent workflow for a task.
+    /// </summary>
+    public async Task<AgentWorkflowResponse> RunWorkflowAsync(AgentWorkflowRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PostAsJsonAsync("/agents/workflow", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<AgentWorkflowResponse>(cancellationToken)
+            ?? new AgentWorkflowResponse();
+    }
 }
