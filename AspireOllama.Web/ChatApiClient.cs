@@ -1,7 +1,10 @@
 using System.Security.Claims;
 using AspireOllama.Shared;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Identity.Abstractions;
+using Microsoft.Identity.Client;
+using Microsoft.Identity.Web;
 
 namespace AspireOllama.Web;
 
@@ -10,8 +13,12 @@ namespace AspireOllama.Web;
 /// Uses IDownstreamApi from Microsoft.Identity.Web to acquire OBO tokens.
 /// Resolves ClaimsPrincipal via AuthenticationStateProvider to support
 /// Blazor Server circuits where HttpContext is not available.
+/// On MsalUiRequiredException, forces re-login to refresh the token cache.
 /// </summary>
-public class ChatApiClient(IDownstreamApi downstreamApi, AuthenticationStateProvider authStateProvider)
+public class ChatApiClient(
+    IDownstreamApi downstreamApi,
+    AuthenticationStateProvider authStateProvider,
+    NavigationManager navigationManager)
 {
     private const string ApiName = "ApiService";
 
@@ -21,68 +28,115 @@ public class ChatApiClient(IDownstreamApi downstreamApi, AuthenticationStateProv
         return authState.User;
     }
 
+    /// <summary>
+    /// Wraps downstream API calls. On MsalUiRequiredException, navigates
+    /// the user to re-login so a fresh token can be acquired.
+    /// </summary>
+    private async Task<T> CallWithReauthAsync<T>(Func<Task<T>> apiCall)
+    {
+        try
+        {
+            return await apiCall();
+        }
+        catch (Exception ex) when (ex is MicrosoftIdentityWebChallengeUserException
+                                     or MsalUiRequiredException)
+        {
+            navigationManager.NavigateTo("MicrosoftIdentity/Account/SignIn", forceLoad: true);
+            throw;
+        }
+    }
+
+    private async Task CallWithReauthAsync(Func<Task> apiCall)
+    {
+        try
+        {
+            await apiCall();
+        }
+        catch (Exception ex) when (ex is MicrosoftIdentityWebChallengeUserException
+                                     or MsalUiRequiredException)
+        {
+            navigationManager.NavigateTo("MicrosoftIdentity/Account/SignIn", forceLoad: true);
+            throw;
+        }
+    }
+
     public async Task<ChatMessageResponse> SendMessageAsync(ChatMessageRequest request, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        return await downstreamApi.PostForUserAsync<ChatMessageRequest, ChatMessageResponse>(
-            ApiName, request,
-            options => options.RelativePath = "api/chat",
-            user,
-            cancellationToken: cancellationToken)
-            ?? new ChatMessageResponse();
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.PostForUserAsync<ChatMessageRequest, ChatMessageResponse>(
+                ApiName, request,
+                options => options.RelativePath = "api/chat",
+                user,
+                cancellationToken: cancellationToken)
+                ?? new ChatMessageResponse();
+        });
     }
 
     public async Task<ChatSession> CreateSessionAsync(CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        var response = await downstreamApi.CallApiForUserAsync(
-            ApiName,
-            options =>
-            {
-                options.HttpMethod = HttpMethod.Post.ToString();
-                options.RelativePath = "api/sessions";
-            },
-            user,
-            cancellationToken: cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<ChatSession>(cancellationToken)
-            ?? new ChatSession();
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            var response = await downstreamApi.CallApiForUserAsync(
+                ApiName,
+                options =>
+                {
+                    options.HttpMethod = HttpMethod.Post.ToString();
+                    options.RelativePath = "api/sessions";
+                },
+                user,
+                cancellationToken: cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ChatSession>(cancellationToken)
+                ?? new ChatSession();
+        });
     }
 
     public async Task<List<ChatSession>> GetSessionsAsync(CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        return await downstreamApi.GetForUserAsync<List<ChatSession>>(
-            ApiName,
-            options => options.RelativePath = "api/sessions",
-            user,
-            cancellationToken: cancellationToken)
-            ?? [];
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.GetForUserAsync<List<ChatSession>>(
+                ApiName,
+                options => options.RelativePath = "api/sessions",
+                user,
+                cancellationToken: cancellationToken)
+                ?? [];
+        });
     }
 
     public async Task<ChatSessionDetails?> GetSessionHistoryAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        return await downstreamApi.GetForUserAsync<ChatSessionDetails>(
-            ApiName,
-            options => options.RelativePath = $"api/sessions/{sessionId}",
-            user,
-            cancellationToken: cancellationToken);
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.GetForUserAsync<ChatSessionDetails>(
+                ApiName,
+                options => options.RelativePath = $"api/sessions/{sessionId}",
+                user,
+                cancellationToken: cancellationToken);
+        });
     }
 
     public async Task<bool> DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        var response = await downstreamApi.CallApiForUserAsync(
-            ApiName,
-            options =>
-            {
-                options.HttpMethod = HttpMethod.Delete.ToString();
-                options.RelativePath = $"api/sessions/{sessionId}";
-            },
-            user,
-            cancellationToken: cancellationToken);
-        return response.IsSuccessStatusCode;
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            var response = await downstreamApi.CallApiForUserAsync(
+                ApiName,
+                options =>
+                {
+                    options.HttpMethod = HttpMethod.Delete.ToString();
+                    options.RelativePath = $"api/sessions/{sessionId}";
+                },
+                user,
+                cancellationToken: cancellationToken);
+            return response.IsSuccessStatusCode;
+        });
     }
 
     // ============================================================
@@ -91,34 +145,43 @@ public class ChatApiClient(IDownstreamApi downstreamApi, AuthenticationStateProv
 
     public async Task<List<AgentInfo>> GetAgentsAsync(CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        return await downstreamApi.GetForUserAsync<List<AgentInfo>>(
-            ApiName,
-            options => options.RelativePath = "api/agents",
-            user,
-            cancellationToken: cancellationToken)
-            ?? [];
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.GetForUserAsync<List<AgentInfo>>(
+                ApiName,
+                options => options.RelativePath = "api/agents",
+                user,
+                cancellationToken: cancellationToken)
+                ?? [];
+        });
     }
 
     public async Task<AgentCallResponse> CallAgentToolAsync(AgentCallRequest request, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        return await downstreamApi.PostForUserAsync<AgentCallRequest, AgentCallResponse>(
-            ApiName, request,
-            options => options.RelativePath = "api/agents/call",
-            user,
-            cancellationToken: cancellationToken)
-            ?? new AgentCallResponse();
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.PostForUserAsync<AgentCallRequest, AgentCallResponse>(
+                ApiName, request,
+                options => options.RelativePath = "api/agents/call",
+                user,
+                cancellationToken: cancellationToken)
+                ?? new AgentCallResponse();
+        });
     }
 
     public async Task<AgentWorkflowResponse> RunWorkflowAsync(AgentWorkflowRequest request, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserAsync();
-        return await downstreamApi.PostForUserAsync<AgentWorkflowRequest, AgentWorkflowResponse>(
-            ApiName, request,
-            options => options.RelativePath = "api/agents/workflow",
-            user,
-            cancellationToken: cancellationToken)
-            ?? new AgentWorkflowResponse();
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.PostForUserAsync<AgentWorkflowRequest, AgentWorkflowResponse>(
+                ApiName, request,
+                options => options.RelativePath = "api/agents/workflow",
+                user,
+                cancellationToken: cancellationToken)
+                ?? new AgentWorkflowResponse();
+        });
     }
 }

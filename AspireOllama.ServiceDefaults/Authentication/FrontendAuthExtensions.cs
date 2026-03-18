@@ -1,4 +1,5 @@
 using AspireOllama.ServiceDefaults.Authentication;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
@@ -59,6 +60,7 @@ public static class FrontendAuthExtensions
         });
 
         builder.Services.AddAuthorization();
+        builder.Services.AddMicrosoftIdentityConsentHandler();
 
         return builder;
     }
@@ -70,6 +72,22 @@ public static class FrontendAuthExtensions
     {
         app.UseAuthentication();
         app.UseAuthorization();
+
+        // Sign-in endpoint: triggers OIDC challenge to re-acquire tokens
+        app.MapGet("MicrosoftIdentity/Account/SignIn", async (HttpContext context) =>
+        {
+            await context.ChallengeAsync(OpenIdConnectDefaults.AuthenticationScheme,
+                new AuthenticationProperties { RedirectUri = "/" });
+        }).AllowAnonymous();
+
+        // Sign-out endpoint: clears cookies and signs out of Azure AD
+        app.MapGet("MicrosoftIdentity/Account/SignOut", async (HttpContext context) =>
+        {
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            await context.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme,
+                new AuthenticationProperties { RedirectUri = "/" });
+        }).AllowAnonymous();
+
         return app;
     }
 }
