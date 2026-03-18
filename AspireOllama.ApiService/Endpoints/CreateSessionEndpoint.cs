@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Services.Session;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
 
@@ -19,7 +20,7 @@ public class CreateSessionEndpoint : EndpointWithoutRequest<ChatSession>
     public override void Configure()
     {
         Post("/sessions");
-        AllowAnonymous();
+        Roles(ApiSessionsManage);
         Summary(s =>
         {
             s.Summary = "Create a new chat session";

@@ -175,23 +175,23 @@
                             }
                             @if (message.ToolCalls.Count > 0)
                             {
-                                <div class="tool-calls-section">
-                                    <div class="tool-calls-header">
+                                <div class="skill-calls-section">
+                                    <div class="skill-calls-header">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                                         </svg>
-                                        <span>Tools Used (@message.ToolCalls.Count)</span>
+                                        <span>Skills Used (@message.ToolCalls.Count)</span>
                                     </div>
                                     @foreach (var toolCall in message.ToolCalls)
                                     {
-                                        <div class="tool-call-card @toolCall.Status.ToString().ToLower()">
-                                            <div class="tool-call-header">
-                                                <span class="tool-call-name">@toolCall.ToolName</span>
-                                                <span class="tool-call-time">@toolCall.ExecutionTimeMs ms</span>
+                                        <div class="skill-call-card @toolCall.Status.ToString().ToLower()">
+                                            <div class="skill-call-header">
+                                                <span class="skill-call-name">@toolCall.ToolName</span>
+                                                <span class="skill-call-time">@toolCall.ExecutionTimeMs ms</span>
                                             </div>
                                             @if (toolCall.Arguments.Count > 0)
                                             {
-                                                <div class="tool-call-args">
+                                                <div class="skill-call-args">
                                                     @foreach (var arg in toolCall.Arguments)
                                                     {
                                                         <span class="arg-chip">@arg.Key: @arg.Value</span>
@@ -200,10 +200,80 @@
                                             }
                                             @if (!string.IsNullOrEmpty(toolCall.Result))
                                             {
-                                                <div class="tool-call-result">@toolCall.Result</div>
+                                                <div class="skill-call-result">@toolCall.Result</div>
                                             }
                                         </div>
                                     }
+                                </div>
+                            }
+                            @if (!message.IsUser && message.Usage is not null)
+                            {
+                                <div class="usage-info-section">
+                                    <div class="usage-info-header">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M12 20V10"/>
+                                            <path d="M18 20V4"/>
+                                            <path d="M6 20v-4"/>
+                                        </svg>
+                                        <span>Usage Info</span>
+                                    </div>
+                                    <div class="usage-stats-grid">
+                                        <div class="usage-stat">
+                                            <span class="usage-stat-label">Model</span>
+                                            <span class="usage-stat-value model">@message.Usage.Model</span>
+                                        </div>
+                                        <div class="usage-stat">
+                                            <span class="usage-stat-label">Response Time</span>
+                                            <span class="usage-stat-value">@FormatTime(message.Usage.ResponseTimeMs)</span>
+                                        </div>
+                                        @if (message.Usage.TotalTokens > 0)
+                                        {
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Prompt Tokens</span>
+                                                <span class="usage-stat-value">@message.Usage.PromptTokens.ToString("N0")</span>
+                                            </div>
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Completion Tokens</span>
+                                                <span class="usage-stat-value">@message.Usage.CompletionTokens.ToString("N0")</span>
+                                            </div>
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Total Tokens</span>
+                                                <span class="usage-stat-value highlight">@message.Usage.TotalTokens.ToString("N0")</span>
+                                            </div>
+                                        }
+                                        @if (message.Usage.TokensPerSecond > 0)
+                                        {
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Speed</span>
+                                                <span class="usage-stat-value">@message.Usage.TokensPerSecond.ToString("F1") tok/s</span>
+                                            </div>
+                                        }
+                                        @if (message.Usage.ImagesProcessed > 0)
+                                        {
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Images</span>
+                                                <span class="usage-stat-value">@message.Usage.ImagesProcessed</span>
+                                            </div>
+                                        }
+                                        @if (message.Usage.DocumentsProcessed > 0)
+                                        {
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Documents</span>
+                                                <span class="usage-stat-value">@message.Usage.DocumentsProcessed</span>
+                                            </div>
+                                        }
+                                        @if (message.Usage.SkillCallsCount > 0)
+                                        {
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Skills Used</span>
+                                                <span class="usage-stat-value">@message.Usage.SkillCallsCount</span>
+                                            </div>
+                                            <div class="usage-stat">
+                                                <span class="usage-stat-label">Skill Exec Time</span>
+                                                <span class="usage-stat-value">@FormatTime(message.Usage.TotalSkillExecutionTimeMs)</span>
+                                            </div>
+                                        }
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -1026,10 +1096,10 @@
     }
 
     /* ============================================
-       TOOL CALLS
+       SKILL CALLS
        ============================================ */
 
-    .tool-calls-section {
+    .skill-calls-section {
         margin-top: 0.75rem;
         padding: 0.75rem;
         background: rgba(102, 126, 234, 0.1);
@@ -1037,7 +1107,7 @@
         border-radius: 12px;
     }
 
-    .tool-calls-header {
+    .skill-calls-header {
         display: flex;
         align-items: center;
         gap: 0.5rem;
@@ -1049,7 +1119,7 @@
         letter-spacing: 0.05em;
     }
 
-    .tool-call-card {
+    .skill-call-card {
         background: rgba(0, 0, 0, 0.2);
         border-radius: 8px;
         padding: 0.625rem 0.75rem;
@@ -1057,34 +1127,34 @@
         border-left: 3px solid #667eea;
     }
 
-    .tool-call-card.completed {
+    .skill-call-card.completed {
         border-left-color: #22c55e;
     }
 
-    .tool-call-card.failed {
+    .skill-call-card.failed {
         border-left-color: #ef4444;
     }
 
-    .tool-call-header {
+    .skill-call-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 0.375rem;
     }
 
-    .tool-call-name {
+    .skill-call-name {
         font-weight: 600;
         font-size: 0.875rem;
         color: #fff;
     }
 
-    .tool-call-time {
+    .skill-call-time {
         font-size: 0.7rem;
         color: rgba(255, 255, 255, 0.4);
         font-family: monospace;
     }
 
-    .tool-call-args {
+    .skill-call-args {
         display: flex;
         flex-wrap: wrap;
         gap: 0.375rem;
@@ -1101,7 +1171,7 @@
         color: rgba(255, 255, 255, 0.7);
     }
 
-    .tool-call-result {
+    .skill-call-result {
         margin-top: 0.5rem;
         padding: 0.5rem;
         background: rgba(34, 197, 94, 0.1);
@@ -1114,6 +1184,68 @@
         color: rgba(255, 255, 255, 0.85);
         max-height: 150px;
         overflow-y: auto;
+    }
+
+    /* ============================================
+       USAGE INFO
+       ============================================ */
+
+    .usage-info-section {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: rgba(34, 197, 94, 0.08);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        border-radius: 12px;
+    }
+
+    .usage-info-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #22c55e;
+        margin-bottom: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .usage-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 0.5rem;
+    }
+
+    .usage-stat {
+        display: flex;
+        flex-direction: column;
+        padding: 0.5rem 0.75rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+    }
+
+    .usage-stat-label {
+        font-size: 0.65rem;
+        color: rgba(255, 255, 255, 0.5);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.25rem;
+    }
+
+    .usage-stat-value {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #e4e4e7;
+        font-family: monospace;
+    }
+
+    .usage-stat-value.model {
+        color: #a78bfa;
+        font-size: 0.8rem;
+    }
+
+    .usage-stat-value.highlight {
+        color: #22c55e;
     }
 </style>
 
@@ -1527,7 +1659,7 @@
             };
 
             var response = await ChatClient.SendMessageAsync(request);
-            messages.Add(new ChatMessageDisplay(response.Response, false, new List<ImageAttachment>(), new List<FileAttachment>(), response.ToolCalls));
+            messages.Add(new ChatMessageDisplay(response.Response, false, new List<ImageAttachment>(), new List<FileAttachment>(), response.ToolCalls, response.Usage));
 
             // Update session title in sidebar if this was the first message
             var session = sessions.FirstOrDefault(s => s.Id == currentSessionId);
@@ -1561,5 +1693,23 @@
         bool IsUser,
         List<ImageAttachment> Images,
         List<FileAttachment> Files,
-        List<ToolCall> ToolCalls);
+        List<ToolCall> ToolCalls,
+        UsageInfo? Usage = null);
+
+    // ============================================================
+    // Helper Methods
+    // ============================================================
+
+    /// <summary>
+    /// Formats milliseconds into a human-readable time string.
+    /// </summary>
+    private static string FormatTime(long milliseconds)
+    {
+        if (milliseconds < 1000)
+            return $"{milliseconds} ms";
+        else if (milliseconds < 60000)
+            return $"{milliseconds / 1000.0:F1} s";
+        else
+            return $"{milliseconds / 60000.0:F1} min";
+    }
 }

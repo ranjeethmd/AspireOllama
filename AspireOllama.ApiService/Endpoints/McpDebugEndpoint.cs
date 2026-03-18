@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Services.Mcp;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using FastEndpoints;
 
 namespace AspireOllama.ApiService.Endpoints;
@@ -16,7 +17,7 @@ public class McpDebugEndpoint(IMcpService mcpService) : EndpointWithoutRequest<M
     public override void Configure()
     {
         Get("/debug/mcp");
-        AllowAnonymous();
+        Roles(ApiChatRead);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

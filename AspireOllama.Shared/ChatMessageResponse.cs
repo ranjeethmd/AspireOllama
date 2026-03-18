@@ -15,4 +15,9 @@ public class ChatMessageResponse
     /// Indicates whether any tools were used for this response.
     /// </summary>
     public bool UsedTools => ToolCalls.Count > 0;
+
+    /// <summary>
+    /// Usage information including tokens, timing, and model details.
+    /// </summary>
+    public UsageInfo Usage { get; set; } = new();
 }

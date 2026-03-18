@@ -23,6 +23,9 @@ public static class Extensions
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        // Load Terraform-generated secrets (AzureAd, Gateway config)
+        builder.Configuration.AddJsonFile("appsettings.Secrets.json", optional: true, reloadOnChange: false);
+
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();
@@ -173,6 +176,7 @@ public static class Extensions
 
     /// <summary>
     /// Adds an HttpClient for the MCP server using Aspire connection string.
+    /// Includes OBO token propagation and gateway secret for zero trust.
     /// </summary>
     public static void AddMcpServerClient(this WebApplicationBuilder builder)
     {
@@ -181,9 +185,14 @@ public static class Extensions
         builder.Services.AddHttpClient("mcpserver", client =>
         {
             client.BaseAddress = new Uri(connectionString);
-        });
+        })
+        .AddOboTokenPropagation();
     }
 
+    /// <summary>
+    /// Adds an HttpClient for an A2A agent using Aspire connection string.
+    /// Includes OBO token propagation and gateway secret for zero trust.
+    /// </summary>
     public static void AddA2AClient(this WebApplicationBuilder builder, string clientName, string connectionName)
     {
         string connectionString = SafeConnectionString(builder, connectionName);
@@ -191,8 +200,10 @@ public static class Extensions
         builder.Services.AddHttpClient(clientName, client =>
         {
             client.BaseAddress = new Uri(connectionString);
-        });
+        })
+        .AddOboTokenPropagation();
     }
+
 
     private static string SafeConnectionString(WebApplicationBuilder builder, string connectionName)
     {
@@ -208,53 +219,5 @@ public static class Extensions
         return connectionString;
     }
 
-    /// <summary>
-    /// Adds middleware that enforces requests must come through the YARP gateway.
-    /// </summary>
-    public static WebApplication UseGatewayEnforcement(this WebApplication app)
-    {
-        app.Use(async (context, next) =>
-        {
-            var path = context.Request.Path.Value ?? "";
-
-            // Allow health check endpoints without gateway validation
-            if (path.StartsWith(HealthEndpointPath) || path.StartsWith(AlivenessEndpointPath))
-            {
-                await next();
-                return;
-            }
-
-            // Check if request came through YARP gateway
-            // YARP adds X-Forwarded-For header to proxied requests
-            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-            var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault();
-
-            // Allow requests that have forwarding headers (came through gateway)
-            // or internal Aspire service-to-service calls (no external IP)
-            if (!string.IsNullOrEmpty(forwardedFor) || !string.IsNullOrEmpty(forwardedHost))
-            {
-                await next();
-                return;
-            }
-
-            // Check if it's an internal Aspire call (localhost or container network)
-            var remoteIp = context.Connection.RemoteIpAddress?.ToString();
-            if (remoteIp == "127.0.0.1" || remoteIp == "::1" || remoteIp?.StartsWith("10.") == true ||
-                remoteIp?.StartsWith("172.") == true || remoteIp?.StartsWith("192.168.") == true)
-            {
-                await next();
-                return;
-            }
-
-            // Block external requests that didn't come through gateway
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "Direct access forbidden",
-                message = "All requests must go through the YARP gateway"
-            });
-        });
-
-        return app;
-    }
 }
+

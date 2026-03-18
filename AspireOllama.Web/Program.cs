@@ -11,6 +11,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 // ============================================================
+// Authentication (OIDC + OBO for downstream calls)
+// ============================================================
+builder.AddFrontendAuthentication();
+
+// ============================================================
 // Blazor Server Configuration
 // ============================================================
 
@@ -36,30 +41,11 @@ builder.Services.AddServerSideBlazor(options =>
 builder.Services.AddOutputCache();
 
 // ============================================================
-// API Client Configuration
+// API Client Configuration (IDownstreamApi handles OBO token acquisition)
+// Gateway secret is injected by AddServiceDefaults() via ConfigureHttpClientDefaults
 // ============================================================
 
-// Configure HTTP client for API service communication
-builder.Services.AddHttpClient<ChatApiClient>(client =>
-    {
-        // Aspire service discovery resolves "apiservice" to actual endpoint
-        client.BaseAddress = new("https+http://apiservice");
-        client.Timeout = TimeSpan.FromMinutes(10);
-    })
-    .AddStandardResilienceHandler(options =>
-    {
-        // Extended timeouts for AI processing (models can be slow)
-        options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(10);
-        options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(5);
-
-        // Minimal retries - AI requests are expensive and idempotent
-        options.Retry.MaxRetryAttempts = 1;  // Must be >= 1
-        options.Retry.Delay = TimeSpan.FromSeconds(1);
-
-        // Circuit breaker: sampling duration must be >= 2x attempt timeout
-        // This prevents cascading failures when AI service is slow
-        options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(12);
-    });
+builder.Services.AddScoped<ChatApiClient>();
 
 var app = builder.Build();
 
@@ -67,10 +53,10 @@ var app = builder.Build();
 // HTTP Pipeline Configuration
 // ============================================================
 
-// Enable forwarded headers and gateway enforcement
-// All external requests must come through the YARP gateway
+// Enable forwarded headers (no gateway enforcement — Web is user-facing)
+// Unauthenticated users are redirected to Azure AD login (OIDC + PKCE)
 app.MapDefaultEndpoints();
-app.UseGatewayEnforcement();
+app.UseFrontendAuthentication();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -86,7 +72,9 @@ app.UseOutputCache();
 app.MapStaticAssets();
 
 // Map Blazor components with interactive server rendering
+// RequireAuthorization ensures unauthenticated users are redirected to Azure AD login
 app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+    .AddInteractiveServerRenderMode()
+    .RequireAuthorization();
 
 await app.RunAsync();

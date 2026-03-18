@@ -23,26 +23,42 @@ public class DocumentProcessingService : IDocumentProcessingService
     /// <inheritdoc />
     public string ExtractText(FileAttachment file)
     {
+        // Determine file type - use provided Type, or fall back to detection from ContentType/FileName
+        var fileType = file.Type;
+        if (fileType == FileType.Unknown || fileType == FileType.Image)
+        {
+            fileType = DetermineFileType(file.ContentType, file.FileName);
+            _logger.LogInformation("FileType was {Original}, determined as {Detected} from ContentType/FileName",
+                file.Type, fileType);
+        }
+
+        _logger.LogInformation("ExtractText: {FileName}, Type: {Type}, ContentType: {ContentType}",
+            file.FileName, fileType, file.ContentType);
+
         try
         {
             // Decode base64 data to bytes
             var bytes = Convert.FromBase64String(file.Base64Data);
+            _logger.LogInformation("Decoded {Length} bytes for {FileName}", bytes.Length, file.FileName);
 
             // Route to appropriate extractor based on file type
-            return file.Type switch
+            var result = fileType switch
             {
                 FileType.Pdf => ExtractFromPdf(bytes),
                 FileType.Word => ExtractFromWord(bytes),
                 FileType.Excel => ExtractFromExcel(bytes),
                 FileType.PowerPoint => ExtractFromPowerPoint(bytes),
                 FileType.Text => ExtractFromText(bytes),
-                _ => $"[Unsupported file: {file.FileName}]"
+                _ => $"[Unsupported file type '{fileType}' for: {file.FileName}]"
             };
+
+            _logger.LogInformation("Extracted {Length} chars from {FileName}", result?.Length ?? 0, file.FileName);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to extract text from {FileName}", file.FileName);
-            return $"[Error reading file: {file.FileName}]";
+            _logger.LogError(ex, "Failed to extract text from {FileName}, Type: {Type}", file.FileName, fileType);
+            return $"[Error reading file: {file.FileName} - {ex.Message}]";
         }
     }
 

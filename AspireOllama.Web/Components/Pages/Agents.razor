@@ -50,7 +50,7 @@
                     </div>
                     <div class="agent-card-info">
                         <span class="agent-card-name">@GetAgentDisplayName(agent.Name)</span>
-                        <span class="agent-card-tools">@agent.Tools.Count tools</span>
+                        <span class="agent-card-skills">@agent.Tools.Count skills</span>
                     </div>
                     <div class="agent-status-indicator @agent.Status"></div>
                 </div>
@@ -71,11 +71,11 @@
     <div class="agent-main">
         <div class="agent-header">
             <div class="header-tabs">
-                <button class="tab-btn @(activeTab == "tools" ? "active" : "")" @onclick='() => activeTab = "tools"'>
+                <button class="tab-btn @(activeTab == "skills" ? "active" : "")" @onclick='() => activeTab = "skills"'>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                     </svg>
-                    Tool Tester
+                    Skill Tester
                 </button>
                 <button class="tab-btn @(activeTab == "workflow" ? "active" : "")" @onclick='() => activeTab = "workflow"'>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -88,9 +88,9 @@
         </div>
 
         <div class="agents-content">
-            @if (activeTab == "tools")
+            @if (activeTab == "skills")
             {
-                <div class="tools-panel">
+                <div class="skills-panel">
                     @if (selectedAgentInfo != null)
                     {
                         <div class="selected-agent-header">
@@ -103,30 +103,30 @@
                             </div>
                         </div>
 
-                        <div class="tools-grid">
-                            @foreach (var tool in selectedAgentInfo.Tools)
+                        <div class="skills-grid">
+                            @foreach (var skill in selectedAgentInfo.Tools)
                             {
-                                <div class="tool-card @(selectedTool == tool.Name ? "selected" : "")" @onclick="() => SelectTool(tool)">
-                                    <div class="tool-name">@tool.Name</div>
-                                    <div class="tool-description">@tool.Description</div>
+                                <div class="skill-card @(selectedSkill == skill.Name ? "selected" : "")" @onclick="() => SelectSkill(skill)">
+                                    <div class="skill-name">@skill.Name</div>
+                                    <div class="skill-description">@skill.Description</div>
                                 </div>
                             }
                         </div>
 
-                        @if (!string.IsNullOrEmpty(selectedTool))
+                        @if (!string.IsNullOrEmpty(selectedSkill))
                         {
-                            <div class="tool-execution-panel">
-                                <h3>Execute: @selectedTool</h3>
-                                <div class="tool-params">
-                                    @foreach (var param in toolParams)
+                            <div class="skill-execution-panel">
+                                <h3>Execute: @selectedSkill</h3>
+                                <div class="skill-params">
+                                    @foreach (var param in skillParams)
                                     {
                                         <div class="param-input">
                                             <label>@param.Key</label>
-                                            <input type="text" @bind="toolParams[param.Key]" placeholder="Enter @param.Key..." />
+                                            <input type="text" @bind="skillParams[param.Key]" placeholder="Enter @param.Key..." />
                                         </div>
                                     }
                                 </div>
-                                <button class="execute-btn" @onclick="ExecuteTool" disabled="@isExecuting">
+                                <button class="execute-btn" @onclick="ExecuteSkill" disabled="@isExecuting">
                                     @if (isExecuting)
                                     {
                                         <span class="spinner"></span>
@@ -178,7 +178,7 @@
                                 <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
                             </svg>
                             <h3>Select an Agent</h3>
-                            <p>Choose an agent from the sidebar to view and test its tools</p>
+                            <p>Choose an agent from the sidebar to view and test its skills</p>
                         </div>
                     }
                 </div>
@@ -496,7 +496,7 @@
         font-weight: 500;
     }
 
-    .agent-card-tools {
+    .agent-card-skills {
         font-size: 12px;
         color: #888;
     }
@@ -640,14 +640,14 @@
         margin: 0;
     }
 
-    .tools-grid {
+    .skills-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
         gap: 12px;
         margin-bottom: 24px;
     }
 
-    .tool-card {
+    .skill-card {
         padding: 16px;
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -656,39 +656,39 @@
         transition: all 0.2s;
     }
 
-    .tool-card:hover {
+    .skill-card:hover {
         background: rgba(255, 255, 255, 0.05);
         border-color: rgba(255, 255, 255, 0.2);
     }
 
-    .tool-card.selected {
+    .skill-card.selected {
         background: rgba(102, 126, 234, 0.2);
         border-color: rgba(102, 126, 234, 0.4);
     }
 
-    .tool-name {
+    .skill-name {
         font-weight: 600;
         font-family: monospace;
         margin-bottom: 8px;
         color: #a78bfa;
     }
 
-    .tool-description {
+    .skill-description {
         font-size: 13px;
         color: #888;
     }
 
-    .tool-execution-panel {
+    .skill-execution-panel {
         padding: 20px;
         background: rgba(255, 255, 255, 0.03);
         border-radius: 12px;
     }
 
-    .tool-execution-panel h3 {
+    .skill-execution-panel h3 {
         margin: 0 0 16px;
     }
 
-    .tool-params {
+    .skill-params {
         margin-bottom: 16px;
     }
 
@@ -1354,11 +1354,11 @@
     private List<AgentInfo> agents = [];
     private string selectedAgent = "";
     private AgentInfo? selectedAgentInfo;
-    private string selectedTool = "";
-    private Dictionary<string, string> toolParams = [];
+    private string selectedSkill = "";
+    private Dictionary<string, string> skillParams = [];
     private bool isLoading = false;
     private bool isExecuting = false;
-    private string activeTab = "tools";
+    private string activeTab = "skills";
     private string workflowTask = "";
     private AgentCallResponse? lastResult;
     private AgentWorkflowResponse? workflowResult;
@@ -1450,75 +1450,75 @@
     {
         selectedAgent = agent.Name;
         selectedAgentInfo = agent;
-        selectedTool = "";
-        toolParams.Clear();
+        selectedSkill = "";
+        skillParams.Clear();
         lastResult = null;
     }
 
-    private void SelectTool(AgentTool tool)
+    private void SelectSkill(AgentTool skill)
     {
-        selectedTool = tool.Name;
+        selectedSkill = skill.Name;
         lastResult = null;
 
-        // Set up default parameters based on tool name
-        toolParams.Clear();
-        switch (tool.Name)
+        // Set up default parameters based on skill name
+        skillParams.Clear();
+        switch (skill.Name)
         {
             case "create_plan":
             case "assess_complexity":
             case "suggest_agents":
-                toolParams["task"] = "";
+                skillParams["task"] = "";
                 break;
             case "search_knowledge":
             case "suggest_topics":
-                toolParams["query"] = "";
+                skillParams["query"] = "";
                 break;
             case "get_topic_details":
-                toolParams["topic"] = "";
+                skillParams["topic"] = "";
                 break;
             case "gather_context":
-                toolParams["topics"] = "";
+                skillParams["topics"] = "";
                 break;
             case "compare_topics":
-                toolParams["topic1"] = "";
-                toolParams["topic2"] = "";
+                skillParams["topic1"] = "";
+                skillParams["topic2"] = "";
                 break;
             case "review_response":
-                toolParams["originalPrompt"] = "";
-                toolParams["response"] = "";
+                skillParams["originalPrompt"] = "";
+                skillParams["response"] = "";
                 break;
             case "review_code":
-                toolParams["code"] = "";
-                toolParams["language"] = "csharp";
+                skillParams["code"] = "";
+                skillParams["language"] = "csharp";
                 break;
             case "review_plan":
-                toolParams["planJson"] = "";
+                skillParams["planJson"] = "";
                 break;
             case "execute_csharp":
-                toolParams["code"] = "";
+                skillParams["code"] = "";
                 break;
             case "generate_code":
-                toolParams["description"] = "";
-                toolParams["language"] = "csharp";
+                skillParams["description"] = "";
+                skillParams["language"] = "csharp";
                 break;
             case "analyze_code":
             case "format_code":
-                toolParams["code"] = "";
+                skillParams["code"] = "";
                 break;
             case "generate_tests":
-                toolParams["code"] = "";
-                toolParams["framework"] = "xunit";
+                skillParams["code"] = "";
+                skillParams["framework"] = "xunit";
                 break;
             default:
                 // Generic parameter
-                toolParams["input"] = "";
+                skillParams["input"] = "";
                 break;
         }
     }
 
-    private async Task ExecuteTool()
+    private async Task ExecuteSkill()
     {
-        if (string.IsNullOrEmpty(selectedAgent) || string.IsNullOrEmpty(selectedTool))
+        if (string.IsNullOrEmpty(selectedAgent) || string.IsNullOrEmpty(selectedSkill))
             return;
 
         isExecuting = true;
@@ -1527,8 +1527,8 @@
             var request = new AgentCallRequest
             {
                 AgentName = selectedAgent,
-                ToolName = selectedTool,
-                Arguments = toolParams.ToDictionary(p => p.Key, p => (object?)p.Value)
+                ToolName = selectedSkill,
+                Arguments = skillParams.ToDictionary(p => p.Key, p => (object?)p.Value)
             };
 
             lastResult = await ChatClient.CallAgentToolAsync(request);
@@ -1538,7 +1538,7 @@
             lastResult = new AgentCallResponse
             {
                 AgentName = selectedAgent,
-                ToolName = selectedTool,
+                ToolName = selectedSkill,
                 Success = false,
                 Error = ex.Message
             };

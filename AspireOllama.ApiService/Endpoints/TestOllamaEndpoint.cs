@@ -1,3 +1,4 @@
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using FastEndpoints;
 using Microsoft.Extensions.AI;
 
@@ -16,7 +17,7 @@ public class TestOllamaEndpoint([FromKeyedServices("tools")] IChatClient chatCli
     public override void Configure()
     {
         Get("/test-ollama");
-        AllowAnonymous();
+        Roles(ApiChatRead);
     }
 
     public override async Task HandleAsync(CancellationToken ct)

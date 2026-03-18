@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Services.A2A;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
 
@@ -11,7 +12,7 @@ public class TestAgentConnectivityEndpoint(IHttpClientFactory httpClientFactory,
     public override void Configure()
     {
         Get("/agents/test");
-        AllowAnonymous();
+        Roles(ApiChatRead);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -63,7 +64,7 @@ public class GetAgentsEndpoint(IA2AService a2aService) : EndpointWithoutRequest<
     public override void Configure()
     {
         Get("/agents");
-        AllowAnonymous();
+        Roles(ApiChatRead);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -78,7 +79,7 @@ public class CallAgentEndpoint(IA2AService a2aService) : Endpoint<AgentCallReque
     public override void Configure()
     {
         Post("/agents/call");
-        AllowAnonymous();
+        Roles(ApiChatWrite);
     }
 
     public override async Task HandleAsync(AgentCallRequest req, CancellationToken ct)
@@ -93,7 +94,7 @@ public class RunWorkflowEndpoint(IA2AService a2aService) : Endpoint<AgentWorkflo
     public override void Configure()
     {
         Post("/agents/workflow");
-        AllowAnonymous();
+        Roles(ApiChatWrite);
     }
 
     public override async Task HandleAsync(AgentWorkflowRequest req, CancellationToken ct)

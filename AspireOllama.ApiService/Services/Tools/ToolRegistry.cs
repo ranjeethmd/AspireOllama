@@ -16,6 +16,8 @@ public class ToolRegistry : IToolRegistry
         WebSearchTool webSearchTool,
         CodeExecutionTool codeExecutionTool,
         FileOperationsTool fileOperationsTool,
+        ImageAnalysisTool imageAnalysisTool,
+        DocumentAnalysisTool documentAnalysisTool,
         ILogger<ToolRegistry> logger)
     {
         _logger = logger;
@@ -48,6 +50,20 @@ public class ToolRegistry : IToolRegistry
             _tools.Add(AIFunctionFactory.Create(fileOperationsTool.ReadFile, "read_file"));
             _tools.Add(AIFunctionFactory.Create(fileOperationsTool.WriteFile, "write_file"));
             _logger.LogInformation("Registered tool: {Name} (3 functions)", fileOperationsTool.Name);
+        }
+
+        // Register Image Analysis tool (uses LLaVA for vision)
+        if (imageAnalysisTool.IsEnabled)
+        {
+            _tools.Add(AIFunctionFactory.Create(imageAnalysisTool.AnalyzeImageAsync, "analyze_image"));
+            _logger.LogInformation("Registered tool: {Name}", imageAnalysisTool.Name);
+        }
+
+        // Register Document Analysis tool
+        if (documentAnalysisTool.IsEnabled)
+        {
+            _tools.Add(AIFunctionFactory.Create(documentAnalysisTool.AnalyzeDocumentAsync, "analyze_document"));
+            _logger.LogInformation("Registered tool: {Name}", documentAnalysisTool.Name);
         }
 
         _logger.LogInformation("Tool registry initialized with {Count} tools", _tools.Count);

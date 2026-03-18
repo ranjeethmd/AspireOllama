@@ -33,7 +33,9 @@
       "Bash(del \"C:\\\\Users\\\\ranje\\\\source\\\\repos\\\\ranjeethmd\\\\AspireOllama\\\\A2A\\\\AspireOllama.A2A.PlannerAgent\\\\PlannerTools.cs\")",
       "Bash(taskkill:*)",
       "Bash(grep:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(dotnet add:*)",
+      "Bash(dotnet add package:*)"
     ]
   }
 }

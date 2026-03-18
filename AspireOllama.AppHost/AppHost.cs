@@ -86,8 +86,9 @@ apiService
 // Internal only - accessed through Gateway
 // ============================================================
 var webFrontend = builder.AddProject<Projects.AspireOllama_Web>("webfrontend")
+    .WithEndpoint("http", e => e.Port = 5200)
+    .WithEndpoint("https", e => e.Port = 7200)
     .WithHttpHealthCheck("/health")
-    .WithReference(apiService)
     .WaitFor(apiService);
 
 // ============================================================
@@ -97,19 +98,16 @@ var webFrontend = builder.AddProject<Projects.AspireOllama_Web>("webfrontend")
 // ============================================================
 var scalar = builder.AddScalarApiReference();
 
-
 // Register all services with Scalar for consolidated documentation
 scalar
     .WithApiReference(apiService, configureOptions: options =>
     {
         options.AddDocument("v1", "REST API - Chat, Sessions, Agents");
     })
-
-
     .WithApiReference(mcpServer, configureOptions: options =>
     {
         options.AddDocument("v1", "MCP Server - Model Context Protocol Tools");
-    })    
+    })
     .WithApiReference(plannerAgent, configureOptions: options =>
     {
         options.AddDocument("v1", "Planner Agent - A2A Protocol");
@@ -128,52 +126,31 @@ scalar
     });
 
 // ============================================================
-// YARP Gateway - Single entry point for all external traffic
-// Routes:
-//   /api/*         -> API Service (REST API)
-//   /mcp/*         -> MCP Server (Model Context Protocol)
-//   /ollama/*      -> Ollama LLM Service (internal access for agents)
-//   /a2a/planner/* -> Planner Agent (A2A Protocol)
-//   /a2a/reviewer/* -> Reviewer Agent (A2A Protocol)
-//   /a2a/research/* -> Research Agent (A2A Protocol)
-//   /a2a/code/*    -> Code Agent (A2A Protocol)
-//   /scalar        -> Consolidated API Documentation
-//   /*             -> Web Frontend (Blazor UI)
-// ============================================================
 // Configure agents to connect to Ollama directly
+// ============================================================
 plannerAgent.WithReference(ollama).WaitFor(llama);
 reviewerAgent.WithReference(ollama).WaitFor(llama);
 researchAgent.WithReference(ollama).WaitFor(llama);
 codeAgent.WithReference(ollama).WaitFor(llama);
 
+// ============================================================
+// YARP Gateway (Aspire built-in) - Single entry point
+// Routes all external traffic to internal services
+// ============================================================
 var gateway = builder.AddYarp("gateway")
-    .WithReference(apiService)
-    .WithReference(mcpServer)
-    .WithReference(plannerAgent)
-    .WithReference(reviewerAgent)
-    .WithReference(researchAgent)
-    .WithReference(codeAgent)
-    .WithReference(webFrontend)
-    .WithReference(scalar)
     .WithConfiguration(yarp =>
     {
-        // API Service routes
         yarp.AddRoute("/api/{**catch-all}", apiService);
-
-        // MCP Server routes
         yarp.AddRoute("/mcp/{**catch-all}", mcpServer);
-
-        // A2A Agent routes
         yarp.AddRoute("/a2a/planner/{**catch-all}", plannerAgent);
         yarp.AddRoute("/a2a/reviewer/{**catch-all}", reviewerAgent);
         yarp.AddRoute("/a2a/research/{**catch-all}", researchAgent);
         yarp.AddRoute("/a2a/code/{**catch-all}", codeAgent);
-
-        // Scalar API Documentation
         yarp.AddRoute("/scalar/{**catch-all}", scalar);
-
-        // Web Frontend (catch-all, must be last)
-        yarp.AddRoute(webFrontend);
+        yarp.AddRoute("/{**catch-all}", webFrontend);
     });
+
+// Web frontend calls downstream services through the gateway
+webFrontend.WithReference(gateway);
 
 builder.Build().Run();

@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Services.Session;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
 
@@ -27,7 +28,7 @@ public class GetSessionEndpoint : Endpoint<GetSessionRequest, ChatSessionDetails
     public override void Configure()
     {
         Get("/sessions/{Id}");
-        AllowAnonymous();
+        Roles(ApiChatRead);
         Summary(s =>
         {
             s.Summary = "Get a chat session with messages";

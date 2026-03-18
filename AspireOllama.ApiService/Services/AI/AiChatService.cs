@@ -4,41 +4,58 @@ using AspireOllama.ApiService.Services.Tools;
 using AspireOllama.Shared;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics;
 
 namespace AspireOllama.ApiService.Services.AI;
 
 /// <summary>
 /// Handles AI chat operations.
 /// Single responsibility: Building context and calling the AI model.
-/// Uses two models: llava for vision (images), llama3.1 for tool calling.
+/// Llama 3 is the main agent that can delegate to LLaVA via the image analysis tool.
 /// </summary>
 public class AiChatService : IAiChatService
 {
-    private readonly IChatClient _visionClient;      // llava - for image understanding
-    private readonly IChatClient _toolClient;        // llama3.1 - for tool calling
+    private readonly IChatClient _toolClient;
     private readonly IChatClient _functionInvokingClient;
     private readonly IDocumentProcessingService _docService;
     private readonly IToolRegistry _toolRegistry;
     private readonly IMcpService _mcpService;
+    private readonly ImageAnalysisTool _imageAnalysisTool;
     private readonly ILogger<AiChatService> _logger;
 
+    /// <summary>
+    /// System prompt that guides the AI's behavior.
+    /// </summary>
+    private const string SystemPrompt = """
+        You are a helpful AI assistant. Respond in plain natural language.
+
+        CRITICAL RULES:
+        1. NEVER output JSON in your response. No {"name":...} or any JSON syntax.
+        2. NEVER mention "function calls" or "tool calls" in your response.
+        3. When you see [FILE: ...] content, just read it and answer the user's question naturally.
+        4. For images marked [IMAGES], use the analyze_image tool (the system handles this automatically).
+        5. Respond conversationally like a helpful human assistant would.
+
+        BAD response: {"name": "something", "parameters": {...}}
+        GOOD response: "The contract shows a total of $12,352.50 USD."
+        """;
+
     public AiChatService(
-        [FromKeyedServices("vision")] IChatClient visionClient,
         [FromKeyedServices("tools")] IChatClient toolClient,
         IDocumentProcessingService docService,
         IToolRegistry toolRegistry,
         IMcpService mcpService,
+        ImageAnalysisTool imageAnalysisTool,
         ILogger<AiChatService> logger)
     {
-        _visionClient = visionClient;
         _toolClient = toolClient;
         _docService = docService;
         _toolRegistry = toolRegistry;
         _mcpService = mcpService;
+        _imageAnalysisTool = imageAnalysisTool;
         _logger = logger;
 
         // Wrap the tool client with FunctionInvokingChatClient for automatic tool execution
-        // This handles the tool call loop: model requests tool -> tool executes -> result sent back -> model continues
         _functionInvokingClient = new ChatClientBuilder(toolClient)
             .UseFunctionInvocation()
             .Build();
@@ -59,16 +76,11 @@ public class AiChatService : IAiChatService
         var userMessage = BuildUserMessage(request);
         messages.Add(userMessage);
 
-        // Choose model based on whether images are present
-        var hasImages = request.Images is not null && request.Images.Count > 0;
-        var client = hasImages ? _visionClient : _toolClient;
-        var modelName = hasImages ? "llava (vision)" : "llama3.1 (tools)";
+        // Always use Llama 3 as the main agent
+        _logger.LogInformation("Calling llama3 with {MessageCount} total messages (including system prompt)", messages.Count);
+        var response = await _toolClient.GetResponseAsync(messages, cancellationToken: cancellationToken);
 
-        // Call AI model
-        _logger.LogInformation("Calling {Model} with {MessageCount} total messages", modelName, messages.Count);
-        var response = await client.GetResponseAsync(messages, cancellationToken: cancellationToken);
-
-        _logger.LogInformation("Received response from {Model}", modelName);
+        _logger.LogInformation("Received response from llama3");
         return response.Text ?? string.Empty;
     }
 
@@ -79,6 +91,7 @@ public class AiChatService : IAiChatService
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Building AI context with tools enabled, {HistoryCount} history messages", history.Count);
+        var stopwatch = Stopwatch.StartNew();
 
         // Build conversation messages from history
         var messages = BuildHistoryMessages(history);
@@ -87,119 +100,213 @@ public class AiChatService : IAiChatService
         var userMessage = BuildUserMessage(request);
         messages.Add(userMessage);
 
-        // Check if images are present - use vision model without tools
-        var hasImages = request.Images is not null && request.Images.Count > 0;
+        var imageCount = request.Images?.Count ?? 0;
+        var documentCount = request.Files?.Count ?? 0;
 
-        if (hasImages)
+        // Set up pending images for the ImageAnalysisTool
+        if (request.Images is not null && request.Images.Count > 0)
         {
-            // Vision model (llava) doesn't support tools - use it directly for images
-            _logger.LogInformation("Images detected, using llava vision model (no tools)");
-            var visionResponse = await _visionClient.GetResponseAsync(messages, cancellationToken: cancellationToken);
-            return new AiChatResult
+            var pendingImages = request.Images.Select(img => new PendingImage
             {
-                Response = visionResponse.Text ?? string.Empty,
-                ToolCalls = new List<ToolCall>()
-            };
-        }
+                FileName = img.FileName,
+                Data = Convert.FromBase64String(img.Base64Data),
+                MediaType = NormalizeMediaType(img.ContentType)
+            }).ToList();
 
-        // No images - use tool-calling model (llama3.1)
-        // Collect all available tools from registry and MCP servers
-        var tools = new List<AIFunction>();
-        tools.AddRange(_toolRegistry.GetEnabledTools());
+            _imageAnalysisTool.SetImages(pendingImages);
+        }
 
         try
         {
-            var mcpTools = await _mcpService.GetMcpToolsAsync(cancellationToken);
-            tools.AddRange(mcpTools);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get MCP tools, continuing without them");
-        }
+            // For document-only requests, don't pass tools to avoid JSON output hallucination
+            // Only pass tools when images are present (need analyze_image) or explicit tool use is expected
+            var needsTools = imageCount > 0;
 
-        _logger.LogInformation("Using llama3.1 with {Count} tools ({BuiltIn} built-in, {Mcp} from MCP)",
-            tools.Count, _toolRegistry.GetEnabledTools().Count, tools.Count - _toolRegistry.GetEnabledTools().Count);
-
-        // Build chat options with tools (cast AIFunction to AITool)
-        var chatOptions = new ChatOptions
-        {
-            Tools = tools.Cast<AITool>().ToList()
-        };
-
-        // Track tool calls
-        var toolCalls = new List<ToolCall>();
-        var toolCallTimes = new Dictionary<string, DateTime>();
-
-        // Call the function-invoking client which handles the tool execution loop
-        _logger.LogInformation("Calling llama3.1 with {MessageCount} messages and {ToolCount} tools",
-            messages.Count, tools.Count);
-
-        var response = await _functionInvokingClient.GetResponseAsync(
-            messages,
-            chatOptions,
-            cancellationToken);
-
-        // Extract tool call information from response messages
-        foreach (var message in response.Messages)
-        {
-            foreach (var content in message.Contents)
+            if (!needsTools)
             {
-                if (content is FunctionCallContent functionCall)
+                // No tools needed - use direct chat without function calling
+                _logger.LogInformation("Document-only request, using direct chat (no tools)");
+
+                var directResponse = await _toolClient.GetResponseAsync(messages, cancellationToken: cancellationToken);
+                stopwatch.Stop();
+
+                return new AiChatResult
                 {
-                    var toolCall = new ToolCall
-                    {
-                        Id = functionCall.CallId ?? Guid.NewGuid().ToString(),
-                        ToolName = functionCall.Name,
-                        Arguments = functionCall.Arguments?.ToDictionary(
-                            kvp => kvp.Key,
-                            kvp => kvp.Value) ?? new Dictionary<string, object?>(),
-                        Status = ToolCallStatus.Executing,
-                        ExecutionTimeMs = 0
-                    };
+                    Response = directResponse.Text ?? string.Empty,
+                    ToolCalls = new List<ToolCall>(),
+                    Usage = BuildUsageInfo(directResponse, "llama3", stopwatch.ElapsedMilliseconds, imageCount, documentCount, new List<ToolCall>())
+                };
+            }
 
-                    toolCalls.Add(toolCall);
-                    toolCallTimes[toolCall.Id] = DateTime.UtcNow;
+            // Collect tools - only when needed (images present)
+            var tools = new List<AIFunction>();
+            var registryTools = _toolRegistry.GetEnabledTools();
 
-                    _logger.LogInformation("Tool call: {ToolName} with args: {Args}",
-                        functionCall.Name,
-                        string.Join(", ", toolCall.Arguments.Select(a => $"{a.Key}={a.Value}")));
-                }
-                else if (content is FunctionResultContent functionResult)
+            foreach (var tool in registryTools)
+            {
+                // Only include analyze_image when images are present
+                if (tool.Name == "analyze_image" && imageCount == 0)
+                    continue;
+
+                // Skip document analysis tool - we use direct extraction instead
+                if (tool.Name == "analyze_document")
+                    continue;
+
+                tools.Add(tool);
+            }
+
+            try
+            {
+                var mcpTools = await _mcpService.GetMcpToolsAsync(cancellationToken);
+                tools.AddRange(mcpTools);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get MCP tools, continuing without them");
+            }
+
+            _logger.LogInformation("Using llama3 with {Count} tools (images: {HasImages})",
+                tools.Count, imageCount > 0);
+
+            // Build chat options with tools (cast AIFunction to AITool)
+            var chatOptions = new ChatOptions
+            {
+                Tools = tools.Cast<AITool>().ToList()
+            };
+
+            // Track tool calls
+            var toolCalls = new List<ToolCall>();
+            var toolCallTimes = new Dictionary<string, DateTime>();
+
+            // Call the function-invoking client which handles the tool execution loop
+            _logger.LogInformation("Calling llama3 with {MessageCount} messages (including system prompt) and {ToolCount} tools",
+                messages.Count, tools.Count);
+
+            var response = await _functionInvokingClient.GetResponseAsync(
+                messages,
+                chatOptions,
+                cancellationToken);
+
+            // Extract tool call information from response messages
+            foreach (var message in response.Messages)
+            {
+                foreach (var content in message.Contents)
                 {
-                    var existingCall = toolCalls.FirstOrDefault(tc => tc.Id == functionResult.CallId);
-                    if (existingCall is not null)
+                    if (content is FunctionCallContent functionCall)
                     {
-                        existingCall.Result = functionResult.Result?.ToString() ?? "(no result)";
-                        existingCall.Status = ToolCallStatus.Completed;
-
-                        if (toolCallTimes.TryGetValue(existingCall.Id, out var startTime))
+                        var toolCall = new ToolCall
                         {
-                            existingCall.ExecutionTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
-                        }
+                            Id = functionCall.CallId ?? Guid.NewGuid().ToString(),
+                            ToolName = functionCall.Name,
+                            Arguments = functionCall.Arguments?.ToDictionary(
+                                kvp => kvp.Key,
+                                kvp => kvp.Value) ?? new Dictionary<string, object?>(),
+                            Status = ToolCallStatus.Executing,
+                            ExecutionTimeMs = 0
+                        };
 
-                        _logger.LogInformation("Tool result for {ToolName}: {Result} ({Time}ms)",
-                            existingCall.ToolName, existingCall.Result, existingCall.ExecutionTimeMs);
+                        toolCalls.Add(toolCall);
+                        toolCallTimes[toolCall.Id] = DateTime.UtcNow;
+
+                        _logger.LogInformation("Tool call: {ToolName} with args: {Args}",
+                            functionCall.Name,
+                            string.Join(", ", toolCall.Arguments.Select(a => $"{a.Key}={a.Value}")));
+                    }
+                    else if (content is FunctionResultContent functionResult)
+                    {
+                        var existingCall = toolCalls.FirstOrDefault(tc => tc.Id == functionResult.CallId);
+                        if (existingCall is not null)
+                        {
+                            existingCall.Result = functionResult.Result?.ToString() ?? "(no result)";
+                            existingCall.Status = ToolCallStatus.Completed;
+
+                            if (toolCallTimes.TryGetValue(existingCall.Id, out var startTime))
+                            {
+                                existingCall.ExecutionTimeMs = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
+                            }
+
+                            _logger.LogInformation("Tool result for {ToolName}: {Result} ({Time}ms)",
+                                existingCall.ToolName, existingCall.Result, existingCall.ExecutionTimeMs);
+                        }
                     }
                 }
             }
+
+            stopwatch.Stop();
+            _logger.LogInformation("Received response from llama3, {ToolCount} tool calls made", toolCalls.Count);
+
+            return new AiChatResult
+            {
+                Response = response.Text ?? string.Empty,
+                ToolCalls = toolCalls,
+                Usage = BuildUsageInfo(response, "llama3", stopwatch.ElapsedMilliseconds, imageCount, documentCount, toolCalls)
+            };
+        }
+        finally
+        {
+            // Clear pending images after request completion
+            _imageAnalysisTool.ClearImages();
+        }
+    }
+
+    /// <summary>
+    /// Builds usage information from the AI response.
+    /// </summary>
+    private static UsageInfo BuildUsageInfo(
+        ChatResponse response,
+        string modelName,
+        long responseTimeMs,
+        int imageCount,
+        int documentCount,
+        List<ToolCall> toolCalls)
+    {
+        var usage = new UsageInfo
+        {
+            Model = modelName,
+            ResponseTimeMs = responseTimeMs,
+            ImagesProcessed = imageCount,
+            DocumentsProcessed = documentCount,
+            SkillCallsCount = toolCalls.Count,
+            TotalSkillExecutionTimeMs = toolCalls.Sum(tc => tc.ExecutionTimeMs)
+        };
+
+        // Extract token usage from response if available
+        if (response.Usage is not null)
+        {
+            usage.PromptTokens = response.Usage.InputTokenCount ?? 0;
+            usage.CompletionTokens = response.Usage.OutputTokenCount ?? 0;
         }
 
-        _logger.LogInformation("Received response from AI model, {ToolCount} tool calls made", toolCalls.Count);
-
-        return new AiChatResult
+        // Try to extract additional timing from response metadata
+        if (response.AdditionalProperties is not null)
         {
-            Response = response.Text ?? string.Empty,
-            ToolCalls = toolCalls
-        };
+            if (response.AdditionalProperties.TryGetValue("prompt_eval_duration", out var promptEvalDuration) &&
+                promptEvalDuration is long promptEvalNs)
+            {
+                usage.PromptEvalTimeMs = promptEvalNs / 1_000_000; // Convert nanoseconds to milliseconds
+            }
+
+            if (response.AdditionalProperties.TryGetValue("eval_duration", out var evalDuration) &&
+                evalDuration is long evalNs)
+            {
+                usage.EvalTimeMs = evalNs / 1_000_000; // Convert nanoseconds to milliseconds
+            }
+        }
+
+        return usage;
     }
 
     /// <summary>
     /// Builds chat messages from conversation history.
-    /// Re-extracts document content for full context.
+    /// Includes system prompt and re-extracts document content for full context.
     /// </summary>
     private List<ChatMessage> BuildHistoryMessages(List<ChatHistoryMessage> history)
     {
-        var messages = new List<ChatMessage>();
+        var messages = new List<ChatMessage>
+        {
+            // Add system prompt at the beginning to guide AI behavior
+            new(ChatRole.System, SystemPrompt)
+        };
 
         foreach (var msg in history)
         {
@@ -233,71 +340,85 @@ public class AiChatService : IAiChatService
 
     /// <summary>
     /// Builds the current user message with images and documents.
+    /// Documents: Text is extracted and included with file metadata.
+    /// Images: Info provided so model can call analyze_image tool.
     /// </summary>
     private ChatMessage BuildUserMessage(ChatMessageRequest request)
     {
         var contentParts = new List<AIContent>();
 
-        // Process images - sent as binary data for vision model
+        // Build image info for Llama 3 (it will use analyze_image tool)
+        var imageInfo = new List<string>();
         if (request.Images is not null && request.Images.Count > 0)
         {
-            _logger.LogInformation("Processing {Count} images", request.Images.Count);
             foreach (var image in request.Images)
             {
-                var imageBytes = Convert.FromBase64String(image.Base64Data);
-                var mediaType = NormalizeMediaType(image.ContentType);
-
-                _logger.LogInformation("Adding image: {FileName}, MediaType: {MediaType}, Size: {Size} bytes",
-                    image.FileName, mediaType, imageBytes.Length);
-
-                contentParts.Add(new DataContent(imageBytes, mediaType));
+                imageInfo.Add($"- {image.FileName}");
             }
+            _logger.LogInformation("Images available for analysis: {Count}", request.Images.Count);
         }
 
-        // Process documents - extract text content
-        var documentTexts = new List<string>();
+        // Extract document content with file metadata
+        var documentContents = new List<string>();
         if (request.Files is not null && request.Files.Count > 0)
         {
-            _logger.LogInformation("Processing {Count} documents", request.Files.Count);
             foreach (var file in request.Files)
             {
-                _logger.LogInformation("Extracting text from: {FileName}, Type: {Type}", file.FileName, file.Type);
                 var extractedText = _docService.ExtractText(file);
                 if (!string.IsNullOrWhiteSpace(extractedText))
                 {
-                    documentTexts.Add($"--- Content from {file.FileName} ---\n{extractedText}\n--- End of {file.FileName} ---");
+                    // Include file metadata so AI knows the source
+                    documentContents.Add($"[FILE: {file.FileName} ({file.Type})]\n{extractedText}\n[END FILE: {file.FileName}]");
+                    _logger.LogInformation("Extracted {Length} chars from {FileName} ({Type})",
+                        extractedText.Length, file.FileName, file.Type);
+                }
+                else
+                {
+                    documentContents.Add($"[FILE: {file.FileName} ({file.Type})]\n(Could not extract content)\n[END FILE: {file.FileName}]");
+                    _logger.LogWarning("Could not extract text from {FileName}", file.FileName);
                 }
             }
         }
 
         // Compose final text content
-        var textContent = ComposeTextContent(request.Content, documentTexts, request.Images?.Count ?? 0);
+        var textContent = ComposeTextContent(request.Content, imageInfo, documentContents);
         contentParts.Add(new TextContent(textContent));
 
         return new ChatMessage(ChatRole.User, contentParts);
     }
 
     /// <summary>
-    /// Composes the final text content combining user message and document text.
+    /// Composes the final text content with images info and document content.
     /// </summary>
-    private static string ComposeTextContent(string? userContent, List<string> documentTexts, int imageCount)
+    private static string ComposeTextContent(string? userContent, List<string> imageInfo, List<string> documentContents)
     {
-        var textContent = userContent ?? "";
+        var parts = new List<string>();
 
-        if (documentTexts.Count > 0)
+        // Add user message first
+        if (!string.IsNullOrWhiteSpace(userContent))
         {
-            var documentContext = string.Join("\n\n", documentTexts);
-            textContent = string.IsNullOrWhiteSpace(textContent)
-                ? $"Please analyze the following document(s):\n\n{documentContext}"
-                : $"{textContent}\n\nDocument content:\n\n{documentContext}";
-        }
-        else if (string.IsNullOrWhiteSpace(textContent) && imageCount > 0)
-        {
-            // Default prompt for image-only messages
-            textContent = "Describe this image";
+            parts.Add(userContent);
         }
 
-        return textContent;
+        // Add image availability info (requires tool to view)
+        if (imageInfo.Count > 0)
+        {
+            parts.Add($"[IMAGES - Use analyze_image tool to view]\n{string.Join("\n", imageInfo)}");
+        }
+
+        // Add extracted document content (already readable)
+        if (documentContents.Count > 0)
+        {
+            parts.Add(string.Join("\n\n", documentContents));
+        }
+
+        // Default prompt if only files uploaded with no message
+        if (parts.Count == 0)
+        {
+            return "Please analyze the uploaded file(s).";
+        }
+
+        return string.Join("\n\n", parts);
     }
 
     /// <summary>

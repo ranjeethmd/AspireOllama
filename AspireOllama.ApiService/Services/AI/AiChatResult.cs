@@ -16,4 +16,9 @@ public class AiChatResult
     /// List of tool calls made during the response generation.
     /// </summary>
     public List<ToolCall> ToolCalls { get; set; } = new();
+
+    /// <summary>
+    /// Usage information including tokens, timing, and model details.
+    /// </summary>
+    public UsageInfo Usage { get; set; } = new();
 }

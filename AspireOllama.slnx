@@ -1,7 +1,7 @@
 <Solution>
   <Project Path="AspireOllama.ApiService/AspireOllama.ApiService.csproj" />
   <Project Path="AspireOllama.AppHost/AspireOllama.AppHost.csproj" />
-  <Project Path="AspireOllama.McpServer/AspireOllama.McpServer.csproj" />
+<Project Path="AspireOllama.McpServer/AspireOllama.McpServer.csproj" />
   <Project Path="AspireOllama.ServiceDefaults/AspireOllama.ServiceDefaults.csproj" />
   <Project Path="AspireOllama.Shared/AspireOllama.Shared.csproj" />
   <Project Path="AspireOllama.Tests.UI/AspireOllama.Tests.UI.csproj" />

@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Services.Session;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
 
@@ -19,7 +20,7 @@ public class GetSessionsEndpoint : EndpointWithoutRequest<List<ChatSession>>
     public override void Configure()
     {
         Get("/sessions");
-        AllowAnonymous();
+        Roles(ApiChatRead);
         Summary(s =>
         {
             s.Summary = "Get all chat sessions";

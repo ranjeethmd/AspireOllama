@@ -1,6 +1,7 @@
 using AspireOllama.ApiService.Services.AI;
 using AspireOllama.ApiService.Services.Message;
 using AspireOllama.ApiService.Services.Session;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
 
@@ -15,14 +16,25 @@ public class ChatEndpoint(
     public override void Configure()
     {
         Post("/chat");
-        AllowAnonymous();
+        Roles(ApiChatWrite);
     }
 
     public override async Task HandleAsync(ChatMessageRequest req, CancellationToken ct)
     {
         try
         {
-            logger.LogInformation("Chat request for session {SessionId}", req.SessionId);
+            logger.LogInformation("Chat request for session {SessionId}, Images: {ImageCount}, Files: {FileCount}",
+                req.SessionId, req.Images?.Count ?? 0, req.Files?.Count ?? 0);
+
+            // Log file details for debugging
+            if (req.Files is { Count: > 0 })
+            {
+                foreach (var file in req.Files)
+                {
+                    logger.LogInformation("Received file: {FileName}, Type: {Type}, ContentType: {ContentType}",
+                        file.FileName, file.Type, file.ContentType);
+                }
+            }
 
             var history = await messageService.GetBySessionIdAsync(req.SessionId);
             var result = await aiService.GetResponseWithToolsAsync(req, history, ct);
@@ -40,7 +52,8 @@ public class ChatEndpoint(
             {
                 SessionId = req.SessionId,
                 Response = result.Response,
-                ToolCalls = result.ToolCalls
+                ToolCalls = result.ToolCalls,
+                Usage = result.Usage
             }, ct);
         }
         catch (Exception ex)

@@ -30,4 +30,15 @@ public class ToolConfiguration
     /// Configuration for sandbox directory used by file operations.
     /// </summary>
     public string SandboxPath { get; set; } = "./sandbox";
+
+    /// <summary>
+    /// Enable image analysis tool using LLaVA vision model.
+    /// When enabled, Llama 3 can delegate image processing to LLaVA.
+    /// </summary>
+    public bool EnableImageAnalysis { get; set; } = true;
+
+    /// <summary>
+    /// Enable document analysis tool for PDF, Word, Excel, PowerPoint, and text files.
+    /// </summary>
+    public bool EnableDocumentAnalysis { get; set; } = true;
 }

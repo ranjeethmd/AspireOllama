@@ -1,0 +1,7 @@
+tenant_id = "your-azure-ad-tenant-id"
+
+# Optional overrides
+# web_redirect_uri           = "https://localhost:7000/signin-oidc"
+# web_logout_uri             = "https://localhost:7000/signout-callback-oidc"
+# api_client_secret_end_date = "2026-12-31T23:59:59Z"
+# web_client_secret_end_date = "2026-12-31T23:59:59Z"

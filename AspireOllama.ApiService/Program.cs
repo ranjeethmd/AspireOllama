@@ -20,6 +20,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 // ============================================================
+// Authentication & Authorization (Zero Trust)
+// ============================================================
+
+builder.AddBackendAuthentication();
+
+// ============================================================
 // HTTP Client Configuration
 // ============================================================
 
@@ -77,7 +83,7 @@ builder.Services.Configure<ToolConfiguration>(
 // HTTP client factory for web search tool
 builder.Services.AddHttpClient();
 
-// Named HttpClient for MCP server - uses Aspire connection string
+// Named HttpClient for MCP server - uses Aspire connection string + OBO token propagation
 builder.AddMcpServerClient();
 
 // Built-in tools
@@ -85,9 +91,11 @@ builder.Services.AddSingleton<CalculatorTool>();
 builder.Services.AddSingleton<WebSearchTool>();
 builder.Services.AddSingleton<CodeExecutionTool>();
 builder.Services.AddSingleton<FileOperationsTool>();
+builder.Services.AddScoped<ImageAnalysisTool>(); // Scoped because it uses keyed chat client
+builder.Services.AddScoped<DocumentAnalysisTool>(); // Scoped because it uses keyed chat client
 
-// Tool registry (collects all tools)
-builder.Services.AddSingleton<IToolRegistry, ToolRegistry>();
+// Tool registry (collects all tools) - scoped to support scoped tools
+builder.Services.AddScoped<IToolRegistry, ToolRegistry>();
 
 // MCP service (connects to external MCP servers as client)
 builder.Services.AddSingleton<IMcpService, McpService>();
@@ -96,7 +104,7 @@ builder.Services.AddSingleton<IMcpService, McpService>();
 // A2A Agent Configuration
 // ============================================================
 
-// HTTP clients for A2A agents - uses Aspire connection strings
+// HTTP clients for A2A agents - uses Aspire connection strings + OBO token propagation
 builder.AddA2AClient("planner", "planner-agent");
 builder.AddA2AClient("reviewer", "reviewer-agent");
 builder.AddA2AClient("research", "research-agent");
@@ -177,10 +185,8 @@ using (var scope = app.Services.CreateScope())
 // HTTP Pipeline Configuration
 // ============================================================
 
-// Enable forwarded headers and gateway enforcement
-// All external requests must come through the YARP gateway
 app.MapDefaultEndpoints();
-app.UseGatewayEnforcement();
+app.UseBackendAuthentication();
 
 if (app.Environment.IsDevelopment())
 {

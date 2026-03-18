@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Services.Session;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using FastEndpoints;
 
 namespace AspireOllama.ApiService.Endpoints;
@@ -26,7 +27,7 @@ public class DeleteSessionEndpoint : Endpoint<DeleteSessionRequest>
     public override void Configure()
     {
         Delete("/sessions/{Id}");
-        AllowAnonymous();
+        Roles(ApiSessionsManage);
         Summary(s =>
         {
             s.Summary = "Delete a chat session";
