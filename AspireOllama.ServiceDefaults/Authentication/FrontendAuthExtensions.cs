@@ -39,7 +39,7 @@ public static class FrontendAuthExtensions
         .AddDownstreamApi("ApiService", config.GetSection("DownstreamApis:ApiService"))
         .AddDownstreamApi("McpServer", config.GetSection("DownstreamApis:McpServer"))
         .AddDownstreamApi("A2AAgents", config.GetSection("DownstreamApis:A2AAgents"))
-        .AddInMemoryTokenCaches();
+        .AddDistributedTokenCaches();
 
         // Configure cookie options (AddMicrosoftIdentityWebApp already registers the Cookies scheme)
         builder.Services.Configure<CookieAuthenticationOptions>(

@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.1.1" />
+    <PackageReference Include="Microsoft.Identity.Web.TokenCache" Version="4.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AspireOllama.ServiceDefaults\AspireOllama.ServiceDefaults.csproj" />
     <ProjectReference Include="..\AspireOllama.Shared\AspireOllama.Shared.csproj" />
   </ItemGroup>

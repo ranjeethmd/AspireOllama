@@ -3,6 +3,12 @@ using Scalar.Aspire;
 var builder = DistributedApplication.CreateBuilder(args);
 
 // ============================================================
+// Redis (Distributed Token Cache)
+// ============================================================
+var redis = builder.AddRedis("redis")
+    .WithDataVolume();
+
+// ============================================================
 // Ollama LLM Service
 // ============================================================
 var ollama = builder.AddOllama("ollama")
@@ -89,6 +95,8 @@ var webFrontend = builder.AddProject<Projects.AspireOllama_Web>("webfrontend")
     .WithEndpoint("http", e => e.Port = 5200)
     .WithEndpoint("https", e => e.Port = 7200)
     .WithHttpHealthCheck("/health")
+    .WithReference(redis)
+    .WaitFor(redis)
     .WaitFor(apiService);
 
 // ============================================================

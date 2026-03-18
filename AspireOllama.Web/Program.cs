@@ -11,6 +11,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 // ============================================================
+// Redis Distributed Cache (for MSAL token cache)
+// ============================================================
+builder.AddRedisDistributedCache("redis");
+
+// ============================================================
 // Authentication (OIDC + OBO for downstream calls)
 // ============================================================
 builder.AddFrontendAuthentication();

@@ -29,11 +29,30 @@ public class ChatApiClient(
     }
 
     /// <summary>
+    /// Returns true if the current user is authenticated with the required claims
+    /// for MSAL token acquisition. Redirects to sign-in if not.
+    /// </summary>
+    private async Task<bool> EnsureAuthenticatedAsync()
+    {
+        var user = await GetUserAsync();
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            navigationManager.NavigateTo("MicrosoftIdentity/Account/SignIn", forceLoad: true);
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Wraps downstream API calls. On MsalUiRequiredException, navigates
     /// the user to re-login so a fresh token can be acquired.
+    /// Returns default(T) instead of re-throwing to avoid UI error flicker.
     /// </summary>
-    private async Task<T> CallWithReauthAsync<T>(Func<Task<T>> apiCall)
+    private async Task<T?> CallWithReauthAsync<T>(Func<Task<T>> apiCall)
     {
+        if (!await EnsureAuthenticatedAsync())
+            return default;
+
         try
         {
             return await apiCall();
@@ -42,12 +61,15 @@ public class ChatApiClient(
                                      or MsalUiRequiredException)
         {
             navigationManager.NavigateTo("MicrosoftIdentity/Account/SignIn", forceLoad: true);
-            throw;
+            return default;
         }
     }
 
     private async Task CallWithReauthAsync(Func<Task> apiCall)
     {
+        if (!await EnsureAuthenticatedAsync())
+            return;
+
         try
         {
             await apiCall();
@@ -56,7 +78,6 @@ public class ChatApiClient(
                                      or MsalUiRequiredException)
         {
             navigationManager.NavigateTo("MicrosoftIdentity/Account/SignIn", forceLoad: true);
-            throw;
         }
     }
 
@@ -71,7 +92,7 @@ public class ChatApiClient(
                 user,
                 cancellationToken: cancellationToken)
                 ?? new ChatMessageResponse();
-        });
+        }) ?? new ChatMessageResponse();
     }
 
     public async Task<ChatSession> CreateSessionAsync(CancellationToken cancellationToken = default)
@@ -91,7 +112,7 @@ public class ChatApiClient(
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<ChatSession>(cancellationToken)
                 ?? new ChatSession();
-        });
+        }) ?? new ChatSession();
     }
 
     public async Task<List<ChatSession>> GetSessionsAsync(CancellationToken cancellationToken = default)
@@ -105,7 +126,7 @@ public class ChatApiClient(
                 user,
                 cancellationToken: cancellationToken)
                 ?? [];
-        });
+        }) ?? [];
     }
 
     public async Task<ChatSessionDetails?> GetSessionHistoryAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -136,7 +157,7 @@ public class ChatApiClient(
                 user,
                 cancellationToken: cancellationToken);
             return response.IsSuccessStatusCode;
-        });
+        }) is true;
     }
 
     // ============================================================
@@ -154,7 +175,7 @@ public class ChatApiClient(
                 user,
                 cancellationToken: cancellationToken)
                 ?? [];
-        });
+        }) ?? [];
     }
 
     public async Task<AgentCallResponse> CallAgentToolAsync(AgentCallRequest request, CancellationToken cancellationToken = default)
@@ -168,7 +189,7 @@ public class ChatApiClient(
                 user,
                 cancellationToken: cancellationToken)
                 ?? new AgentCallResponse();
-        });
+        }) ?? new AgentCallResponse();
     }
 
     public async Task<AgentWorkflowResponse> RunWorkflowAsync(AgentWorkflowRequest request, CancellationToken cancellationToken = default)
@@ -182,6 +203,6 @@ public class ChatApiClient(
                 user,
                 cancellationToken: cancellationToken)
                 ?? new AgentWorkflowResponse();
-        });
+        }) ?? new AgentWorkflowResponse();
     }
 }
