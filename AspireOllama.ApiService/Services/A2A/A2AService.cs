@@ -11,6 +11,7 @@ public class A2AService(
 {
     private static readonly Dictionary<string, string> AgentNames = new()
     {
+        ["coordinator"] = "coordinator",
         ["planner"] = "planner",
         ["reviewer"] = "reviewer",
         ["research"] = "research",
@@ -154,133 +155,60 @@ public class A2AService(
         }
     }
 
+    /// <summary>
+    /// Delegates workflow orchestration to the Coordinator Agent.
+    /// The Coordinator handles planning, parallel execution, conflict resolution, and aggregation.
+    /// </summary>
     public async Task<AgentWorkflowResponse> RunWorkflowAsync(AgentWorkflowRequest request, CancellationToken ct = default)
     {
         var totalSw = Stopwatch.StartNew();
-        var interactions = new List<AgentInteraction>();
-        var step = 1;
 
         try
         {
-            // Step 1: Assess complexity with Planner
-            var complexityResult = await CallAgentToolAsync(new AgentCallRequest
+            logger.LogInformation("Delegating workflow to Coordinator Agent: {Task}", request.Task);
+
+            // Single A2A call to the Coordinator — it handles everything
+            var result = await CallAgentToolAsync(new AgentCallRequest
             {
-                AgentName = "planner",
-                ToolName = "assess_complexity",
+                AgentName = "coordinator",
+                ToolName = "orchestrate_task",
                 Arguments = new Dictionary<string, object?> { ["task"] = request.Task }
             }, ct);
-
-            interactions.Add(new AgentInteraction
-            {
-                Step = step++,
-                AgentName = "planner",
-                ToolName = "assess_complexity",
-                Arguments = new Dictionary<string, object?> { ["task"] = request.Task },
-                Result = complexityResult.Result,
-                ExecutionTimeMs = complexityResult.ExecutionTimeMs,
-                Status = complexityResult.Success ? "success" : "failed"
-            });
-
-            // Step 2: Suggest agents
-            var suggestResult = await CallAgentToolAsync(new AgentCallRequest
-            {
-                AgentName = "planner",
-                ToolName = "suggest_agents",
-                Arguments = new Dictionary<string, object?> { ["task"] = request.Task }
-            }, ct);
-
-            interactions.Add(new AgentInteraction
-            {
-                Step = step++,
-                AgentName = "planner",
-                ToolName = "suggest_agents",
-                Arguments = new Dictionary<string, object?> { ["task"] = request.Task },
-                Result = suggestResult.Result,
-                ExecutionTimeMs = suggestResult.ExecutionTimeMs,
-                Status = suggestResult.Success ? "success" : "failed"
-            });
-
-            // Step 3: Create plan
-            var planResult = await CallAgentToolAsync(new AgentCallRequest
-            {
-                AgentName = "planner",
-                ToolName = "create_plan",
-                Arguments = new Dictionary<string, object?>
-                {
-                    ["task"] = request.Task,
-                    ["maxSteps"] = 5
-                }
-            }, ct);
-
-            interactions.Add(new AgentInteraction
-            {
-                Step = step++,
-                AgentName = "planner",
-                ToolName = "create_plan",
-                Arguments = new Dictionary<string, object?> { ["task"] = request.Task },
-                Result = planResult.Result,
-                ExecutionTimeMs = planResult.ExecutionTimeMs,
-                Status = planResult.Success ? "success" : "failed"
-            });
-
-            // Step 4: Research context
-            var researchResult = await CallAgentToolAsync(new AgentCallRequest
-            {
-                AgentName = "research",
-                ToolName = "search_knowledge",
-                Arguments = new Dictionary<string, object?> { ["query"] = request.Task }
-            }, ct);
-
-            interactions.Add(new AgentInteraction
-            {
-                Step = step++,
-                AgentName = "research",
-                ToolName = "search_knowledge",
-                Arguments = new Dictionary<string, object?> { ["query"] = request.Task },
-                Result = researchResult.Result,
-                ExecutionTimeMs = researchResult.ExecutionTimeMs,
-                Status = researchResult.Success ? "success" : "failed"
-            });
-
-            // Step 5: Review the plan
-            var planJson = JsonSerializer.Serialize(planResult.Result);
-            var reviewResult = await CallAgentToolAsync(new AgentCallRequest
-            {
-                AgentName = "reviewer",
-                ToolName = "review_plan",
-                Arguments = new Dictionary<string, object?> { ["plan"] = planJson }
-            }, ct);
-
-            interactions.Add(new AgentInteraction
-            {
-                Step = step++,
-                AgentName = "reviewer",
-                ToolName = "review_plan",
-                Arguments = new Dictionary<string, object?> { ["plan"] = "(plan)" },
-                Result = reviewResult.Result,
-                ExecutionTimeMs = reviewResult.ExecutionTimeMs,
-                Status = reviewResult.Success ? "success" : "failed"
-            });
 
             totalSw.Stop();
+
+            // Map the coordinator's response
+            var interactions = new List<AgentInteraction>
+            {
+                new()
+                {
+                    Step = 1,
+                    AgentName = "coordinator",
+                    ToolName = "orchestrate_task",
+                    Arguments = new Dictionary<string, object?> { ["task"] = request.Task },
+                    Result = result.Result,
+                    ExecutionTimeMs = result.ExecutionTimeMs,
+                    Status = result.Success ? "success" : "failed"
+                }
+            };
 
             return new AgentWorkflowResponse
             {
                 Task = request.Task,
                 Interactions = interactions,
-                FinalResult = $"Workflow completed with {interactions.Count} agent interactions",
+                FinalResult = result.Result?.ToString() ?? "Workflow completed",
                 TotalExecutionTimeMs = totalSw.ElapsedMilliseconds
             };
         }
         catch (Exception ex)
         {
             totalSw.Stop();
-            logger.LogError(ex, "Error running workflow for task: {Task}", request.Task);
+            logger.LogError(ex, "Error delegating workflow to coordinator: {Task}", request.Task);
 
             return new AgentWorkflowResponse
             {
                 Task = request.Task,
-                Interactions = interactions,
+                Interactions = [],
                 FinalResult = $"Workflow failed: {ex.Message}",
                 TotalExecutionTimeMs = totalSw.ElapsedMilliseconds
             };
@@ -297,6 +225,7 @@ public class A2AService(
             "suggest_agents" => $"Suggest which agents should handle this task: {args.GetValueOrDefault("task")}",
             "create_plan" => $"Create a plan for this task: {args.GetValueOrDefault("task")}",
             "orchestrate_workflow" => $"Orchestrate a workflow for: {args.GetValueOrDefault("task")}",
+            "orchestrate_task" => $"{args.GetValueOrDefault("task")}",
             "search_knowledge" => $"Search knowledge for: {args.GetValueOrDefault("query")}",
             "get_topic_details" => $"Get details about topic: {args.GetValueOrDefault("topic")}",
             "gather_context" => $"Gather context for: {args.GetValueOrDefault("topics")}",

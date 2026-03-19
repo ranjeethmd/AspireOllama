@@ -44,6 +44,10 @@ public static class AuthRoles
     public const string A2AResearchGatherContext = "A2A.Research.GatherContext";
     public const string A2AResearchSuggestTopics = "A2A.Research.SuggestTopics";
 
+    // ── Coordinator Agent ──
+    public const string A2ACoordinatorAccess = "A2A.Coordinator.Access";
+    public const string A2ACoordinatorOrchestrate = "A2A.Coordinator.Orchestrate";
+
     // ── Code Agent ──
     public const string A2ACodeAccess = "A2A.Code.Access";
     public const string A2ACodeExecuteCsharp = "A2A.Code.ExecuteCsharp";
@@ -67,6 +71,10 @@ public static class AuthRoles
     /// </summary>
     public static readonly Dictionary<string, Dictionary<string, string>> A2ASkillRoles = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["coordinator"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["orchestrate_task"] = A2ACoordinatorOrchestrate,
+        },
         ["planner"] = new(StringComparer.OrdinalIgnoreCase)
         {
             ["create_plan"] = A2APlannerCreatePlan,

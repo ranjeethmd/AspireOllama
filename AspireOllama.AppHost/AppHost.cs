@@ -1,3 +1,4 @@
+using AspireOllama.Shared;
 using Microsoft.Extensions.Configuration;
 using Scalar.Aspire;
 
@@ -42,9 +43,9 @@ var ollama = builder.AddOllama("ollama")
     .WithGPUSupport()
     .WithDataVolume()
     .WithOpenWebUI();
-var llava = ollama.AddModel("llava", "llava");       // Vision model (image understanding)
-var llama = ollama.AddModel("llama", "llama3.1");    // Tool-calling model (function calling)
-var embedding = ollama.AddModel("embedding", "nomic-embed-text"); // Embedding model (RAG)
+var qwenChat = ollama.AddModel(OllamaModels.ChatResource, OllamaModels.ChatModel);
+var qwenVision = ollama.AddModel(OllamaModels.VisionResource, OllamaModels.VisionModel);
+var embedding = ollama.AddModel(OllamaModels.EmbeddingResource, OllamaModels.EmbeddingModel);
 
 // ============================================================
 // MCP Server (HTTP-based tools server)
@@ -71,6 +72,9 @@ var researchAgent = builder.AddProject<Projects.AspireOllama_A2A_ResearchAgent>(
 var codeAgent = builder.AddProject<Projects.AspireOllama_A2A_CodeAgent>("code-agent")
     .WithHttpHealthCheck("/health");
 
+var coordinatorAgent = builder.AddProject<Projects.AspireOllama_A2A_CoordinatorAgent>("coordinator-agent")
+    .WithHttpHealthCheck("/health");
+
 // Configure A2A agent discovery - each agent knows about the others
 plannerAgent
     .WithEnvironment("A2A__KnownAgents__reviewer", reviewerAgent.GetEndpoint("http"))
@@ -92,6 +96,13 @@ codeAgent
     .WithEnvironment("A2A__KnownAgents__reviewer", reviewerAgent.GetEndpoint("http"))
     .WithEnvironment("A2A__KnownAgents__research", researchAgent.GetEndpoint("http"));
 
+// Coordinator knows about all leaf agents
+coordinatorAgent
+    .WithEnvironment("A2A__KnownAgents__planner", plannerAgent.GetEndpoint("http"))
+    .WithEnvironment("A2A__KnownAgents__reviewer", reviewerAgent.GetEndpoint("http"))
+    .WithEnvironment("A2A__KnownAgents__research", researchAgent.GetEndpoint("http"))
+    .WithEnvironment("A2A__KnownAgents__code", codeAgent.GetEndpoint("http"));
+
 // ============================================================
 // API Service (Chat API)
 // Internal only - accessed through Gateway
@@ -102,18 +113,19 @@ var apiService = builder.AddProject<Projects.AspireOllama_ApiService>("apiservic
 apiService
     .WithReference(chatDb)
     .WithReference(qdrant)
-    .WithReference(llava)
-    .WithReference(llama)
+    .WithReference(qwenChat)
+    .WithReference(qwenVision)
     .WithReference(embedding)
     .WithReference(mcpServer)
+    .WithReference(coordinatorAgent)
     .WithReference(plannerAgent)
     .WithReference(reviewerAgent)
     .WithReference(researchAgent)
     .WithReference(codeAgent)
     .WaitFor(chatDb)
     .WaitFor(qdrant)
-    .WaitFor(llava)
-    .WaitFor(llama)
+    .WaitFor(qwenChat)
+    .WaitFor(qwenVision)
     .WaitFor(embedding)
     .WaitFor(mcpServer)
     .WaitFor(plannerAgent)
@@ -165,15 +177,20 @@ scalar
     .WithApiReference(codeAgent, configureOptions: options =>
     {
         options.AddDocument("v1", "Code Agent - A2A Protocol");
+    })
+    .WithApiReference(coordinatorAgent, configureOptions: options =>
+    {
+        options.AddDocument("v1", "Coordinator Agent - A2A Protocol");
     });
 
 // ============================================================
 // Configure agents to connect to Ollama directly
 // ============================================================
-plannerAgent.WithReference(ollama).WaitFor(llama);
-reviewerAgent.WithReference(ollama).WaitFor(llama);
-researchAgent.WithReference(ollama).WaitFor(llama);
-codeAgent.WithReference(ollama).WaitFor(llama);
+plannerAgent.WithReference(ollama).WaitFor(qwenChat);
+reviewerAgent.WithReference(ollama).WaitFor(qwenChat);
+researchAgent.WithReference(ollama).WaitFor(qwenChat);
+codeAgent.WithReference(ollama).WaitFor(qwenChat);
+coordinatorAgent.WithReference(ollama).WaitFor(qwenChat);
 
 // ============================================================
 // YARP Gateway - Single entry point
@@ -187,6 +204,7 @@ var gateway = builder.AddProject<Projects.AspireOllama_Gateway>("gateway")
     .WithReference(reviewerAgent)
     .WithReference(researchAgent)
     .WithReference(codeAgent)
+    .WithReference(coordinatorAgent)
     .WithReference(webFrontend)
     .WithReference(scalar)
     .WithHttpHealthCheck("/health")
@@ -211,6 +229,7 @@ if (!string.IsNullOrWhiteSpace(newRelicLicenseKey))
         (reviewerAgent,  "AspireOllama.A2A.ReviewerAgent"),
         (researchAgent,  "AspireOllama.A2A.ResearchAgent"),
         (codeAgent,      "AspireOllama.A2A.CodeAgent"),
+        (coordinatorAgent, "AspireOllama.A2A.CoordinatorAgent"),
     };
 
     foreach (var (resource, name) in services)

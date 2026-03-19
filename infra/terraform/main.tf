@@ -57,6 +57,9 @@ resource "random_uuid" "role_a2a_research_get_topic_details" {}
 resource "random_uuid" "role_a2a_research_gather_context" {}
 resource "random_uuid" "role_a2a_research_suggest_topics" {}
 
+resource "random_uuid" "role_a2a_coordinator_access" {}
+resource "random_uuid" "role_a2a_coordinator_orchestrate" {}
+
 resource "random_uuid" "role_a2a_code_access" {}
 resource "random_uuid" "role_a2a_code_execute_csharp" {}
 resource "random_uuid" "role_a2a_code_generate_code" {}
@@ -300,6 +303,24 @@ resource "azuread_application" "api" {
     value                = "A2A.Research.SuggestTopics"
     display_name         = "Suggest Topics"
     description          = "Get topic suggestions"
+    allowed_member_types = ["User"]
+    enabled              = true
+  }
+
+  # ── Coordinator Agent Roles ──
+  app_role {
+    id                   = random_uuid.role_a2a_coordinator_access.result
+    value                = "A2A.Coordinator.Access"
+    display_name         = "Coordinator Access"
+    description          = "Access to Coordinator agent for multi-agent orchestration"
+    allowed_member_types = ["User"]
+    enabled              = true
+  }
+  app_role {
+    id                   = random_uuid.role_a2a_coordinator_orchestrate.result
+    value                = "A2A.Coordinator.Orchestrate"
+    display_name         = "Orchestrate Task"
+    description          = "Run multi-agent workflows via the Coordinator"
     allowed_member_types = ["User"]
     enabled              = true
   }
@@ -569,6 +590,8 @@ locals {
     a2a_research_get_topic_details  = random_uuid.role_a2a_research_get_topic_details.result
     a2a_research_gather_context     = random_uuid.role_a2a_research_gather_context.result
     a2a_research_suggest_topics     = random_uuid.role_a2a_research_suggest_topics.result
+    a2a_coordinator_access          = random_uuid.role_a2a_coordinator_access.result
+    a2a_coordinator_orchestrate     = random_uuid.role_a2a_coordinator_orchestrate.result
     a2a_code_access                 = random_uuid.role_a2a_code_access.result
     a2a_code_execute_csharp         = random_uuid.role_a2a_code_execute_csharp.result
     a2a_code_generate_code          = random_uuid.role_a2a_code_generate_code.result
@@ -694,7 +717,8 @@ locals {
     planner  = "A2A/AspireOllama.A2A.PlannerAgent"
     reviewer = "A2A/AspireOllama.A2A.ReviewerAgent"
     research = "A2A/AspireOllama.A2A.ResearchAgent"
-    code     = "A2A/AspireOllama.A2A.CodeAgent"
+    code        = "A2A/AspireOllama.A2A.CodeAgent"
+    coordinator = "A2A/AspireOllama.A2A.CoordinatorAgent"
   } : {}
 }
 

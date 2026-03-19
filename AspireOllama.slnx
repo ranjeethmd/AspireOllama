@@ -12,6 +12,7 @@
     <Project Path="A2A/AspireOllama.A2A.ReviewerAgent/AspireOllama.A2A.ReviewerAgent.csproj" />
     <Project Path="A2A/AspireOllama.A2A.ResearchAgent/AspireOllama.A2A.ResearchAgent.csproj" />
     <Project Path="A2A/AspireOllama.A2A.CodeAgent/AspireOllama.A2A.CodeAgent.csproj" />
+    <Project Path="A2A/AspireOllama.A2A.CoordinatorAgent/AspireOllama.A2A.CoordinatorAgent.csproj" />
     <Project Path="A2A/AspireOllama.A2A.Shared/AspireOllama.A2A.Shared.csproj" />
   </Folder>
 </Solution>

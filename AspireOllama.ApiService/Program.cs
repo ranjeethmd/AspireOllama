@@ -41,16 +41,16 @@ builder.Services.ConfigureHttpClientDefaults(http =>
 // AI/Ollama Configuration
 // ============================================================
 
-// Register Ollama chat clients using Microsoft.Extensions.AI abstraction
-// Two models: llava for vision, llama3.1 for tool calling
-builder.AddOllamaApiClient("llava")
-    .AddKeyedChatClient("vision");  // Vision model for image understanding
+// Qwen3: text chat + tool calling (RAG)
+builder.AddOllamaApiClient(OllamaModels.ChatResource)
+    .AddKeyedChatClient(OllamaModels.ChatServiceKey);
 
-builder.AddOllamaApiClient("llama")
-    .AddKeyedChatClient("tools");   // Tool-calling model for function calling
+// Qwen2.5-VL: vision / image analysis
+builder.AddOllamaApiClient(OllamaModels.VisionResource)
+    .AddKeyedChatClient(OllamaModels.VisionServiceKey);
 
-// Embedding model for RAG document ingestion and query
-builder.AddOllamaApiClient("embedding")
+// Embedding model for RAG
+builder.AddOllamaApiClient(OllamaModels.EmbeddingResource)
     .AddEmbeddingGenerator();
 
 // ============================================================
@@ -120,8 +120,7 @@ builder.Services.AddSingleton<CalculatorTool>();
 builder.Services.AddSingleton<WebSearchTool>();
 builder.Services.AddSingleton<CodeExecutionTool>();
 builder.Services.AddSingleton<FileOperationsTool>();
-builder.Services.AddScoped<ImageAnalysisTool>(); // Scoped because it uses keyed chat client
-builder.Services.AddScoped<DocumentAnalysisTool>(); // Scoped because it uses keyed chat client
+// ImageAnalysisTool and DocumentAnalysisTool removed — Qwen handles vision natively
 
 // Tool registry (collects all tools) - scoped to support scoped tools
 builder.Services.AddScoped<IToolRegistry, ToolRegistry>();
@@ -134,6 +133,7 @@ builder.Services.AddSingleton<IMcpService, McpService>();
 // ============================================================
 
 // HTTP clients for A2A agents - uses Aspire connection strings + OBO token propagation
+builder.AddA2AClient("coordinator", "coordinator-agent");
 builder.AddA2AClient("planner", "planner-agent");
 builder.AddA2AClient("reviewer", "reviewer-agent");
 builder.AddA2AClient("research", "research-agent");

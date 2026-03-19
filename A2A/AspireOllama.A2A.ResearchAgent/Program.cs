@@ -7,7 +7,7 @@ using OllamaSharp;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddOlamaSharpClient("llama3.1");
+builder.AddOlamaSharpClient(AspireOllama.Shared.OllamaModels.ChatModel);
 builder.AddBackendAuthentication();
 
 // Configure A2A known agents

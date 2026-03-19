@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AspireOllama.Shared\AspireOllama.Shared.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\AspireOllama.Gateway\AspireOllama.Gateway.csproj" />
     <ProjectReference Include="..\AspireOllama.ApiService\AspireOllama.ApiService.csproj" />
     <ProjectReference Include="..\AspireOllama.McpServer\AspireOllama.McpServer.csproj" />
@@ -17,6 +18,7 @@
     <ProjectReference Include="..\A2A\AspireOllama.A2A.ReviewerAgent\AspireOllama.A2A.ReviewerAgent.csproj" />
     <ProjectReference Include="..\A2A\AspireOllama.A2A.ResearchAgent\AspireOllama.A2A.ResearchAgent.csproj" />
     <ProjectReference Include="..\A2A\AspireOllama.A2A.CodeAgent\AspireOllama.A2A.CodeAgent.csproj" />
+    <ProjectReference Include="..\A2A\AspireOllama.A2A.CoordinatorAgent\AspireOllama.A2A.CoordinatorAgent.csproj" />
   </ItemGroup>
 
   <ItemGroup>

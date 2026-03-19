@@ -32,7 +32,7 @@ public class RagRetrievalService(
             cancellationToken: ct);
 
         var chunks = results
-            .Where(r => r.Score > 0.3f)
+            .Where(r => r.Score > 0.5f)
             .Select(r => new RetrievedChunk(
                 r.Payload["text"].StringValue,
                 r.Payload["file_name"].StringValue,

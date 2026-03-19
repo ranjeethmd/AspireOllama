@@ -11,7 +11,7 @@ public class TestOllamaResponse
     public string? Error { get; set; }
 }
 
-public class TestOllamaEndpoint([FromKeyedServices("tools")] IChatClient chatClient)
+public class TestOllamaEndpoint([FromKeyedServices(AspireOllama.Shared.OllamaModels.ChatServiceKey)] IChatClient chatClient)
     : EndpointWithoutRequest<TestOllamaResponse>
 {
     public override void Configure()
