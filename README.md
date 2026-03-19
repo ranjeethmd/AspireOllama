@@ -5,11 +5,13 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 ## Features
 
 - **Modern Agentic UI** - Dark-themed interface with bot avatars, animated thinking indicators, and smooth transitions
-- **Vision-Enabled AI Chat** - Upload images and get AI-powered analysis using the llava vision model
-- **Tool Calling** - Automatic function invocation with llama3.1 for calculations, time queries, weather, and more
+- **Dual-Model AI** - Qwen3 (32B) for text chat + tool calling, Qwen2.5-VL (32B) for vision — unified persona
+- **Smart Tool Routing** - Qwen3 decides when to search documents (RAG) or analyze images (vision) via tool calling
+- **Image Analysis with Follow-ups** - Upload images and ask follow-up questions; the system retrieves images from session history
 - **MCP Integration** - Connect to external MCP servers for extensible tool support
 - **A2A Protocol** - Agent-to-Agent communication with standardized discovery, task management, and peer-to-peer messaging
-- **Multi-Agent System** - Specialized AI agents (Planner, Reviewer, Research, Code) that collaborate on complex tasks
+- **Coordinator Agent** - Orchestrates multi-agent workflows with parallel execution, conflict resolution, and result aggregation
+- **Multi-Agent System** - Specialized AI agents (Planner, Reviewer, Research, Code, Coordinator) that collaborate on complex tasks
 - **RAG Knowledge Base** - Upload large documents (up to 100MB) to a global vector store; all chat sessions search it automatically
 - **Vector Search (Qdrant)** - Document chunks embedded via nomic-embed-text, stored in Qdrant with dot product similarity
 - **Document Analysis** - Upload and analyze PDF, Word, Excel, PowerPoint, and text files
@@ -39,19 +41,20 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 
 ```
 AspireOllama/
-├── AspireOllama.AppHost/         # .NET Aspire orchestrator (Redis, Ollama, YARP, New Relic)
-├── AspireOllama.ApiService/      # Backend API with chat endpoints + MCP client
-├── AspireOllama.McpServer/       # External MCP server with sample tools
-├── AspireOllama.Web/             # Blazor Server frontend (Redis token cache)
-├── AspireOllama.Shared/          # Shared DTOs
+├── AspireOllama.AppHost/         # .NET Aspire orchestrator (MongoDB, Qdrant, Redis, Ollama, YARP, New Relic)
+├── AspireOllama.ApiService/      # Backend API: chat, RAG, tools, A2A coordination
+├── AspireOllama.McpServer/       # MCP server with sample tools
+├── AspireOllama.Web/             # Blazor Server frontend (Redis token cache, document upload)
+├── AspireOllama.Shared/          # Shared DTOs + OllamaModels constants
 ├── AspireOllama.ServiceDefaults/ # Common service config, auth, OpenTelemetry
-├── AspireOllama.Gateway/         # Gateway secrets configuration
+├── AspireOllama.Gateway/         # YARP reverse proxy + Let's Encrypt
 ├── A2A/                          # Agent-to-Agent protocol agents
-│   ├── AspireOllama.A2A.Shared/      # Shared A2A models and client
-│   ├── AspireOllama.A2A.PlannerAgent/  # Task planning and orchestration
-│   ├── AspireOllama.A2A.ReviewerAgent/ # Quality review and validation
-│   ├── AspireOllama.A2A.ResearchAgent/ # Knowledge gathering and context
-│   └── AspireOllama.A2A.CodeAgent/     # Code generation and execution
+│   ├── AspireOllama.A2A.Shared/          # Shared A2A models and client
+│   ├── AspireOllama.A2A.CoordinatorAgent/  # Multi-agent workflow orchestrator
+│   ├── AspireOllama.A2A.PlannerAgent/      # Task planning and orchestration
+│   ├── AspireOllama.A2A.ReviewerAgent/     # Quality review and validation
+│   ├── AspireOllama.A2A.ResearchAgent/     # Knowledge gathering and context
+│   └── AspireOllama.A2A.CodeAgent/         # Code generation and execution
 ├── k8s/                          # Kubernetes deployment manifests
 │   ├── base/                     # Kustomize base (all resources)
 │   ├── build-images.sh           # Docker image build script
@@ -66,9 +69,10 @@ AspireOllama/
 | `AspireOllama.ApiService` | Backend API with chat endpoints, tool calling, MCP client, RAG ingestion/retrieval, and MongoDB persistence |
 | `AspireOllama.McpServer` | HTTP-based MCP server exposing weather, time, and conversion tools |
 | `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI, file upload, and Redis-backed token cache |
-| `AspireOllama.Shared` | Shared DTOs for API communication including tool call models |
+| `AspireOllama.Shared` | Shared DTOs, OllamaModels constants, API communication models |
 | `AspireOllama.ServiceDefaults` | Common service config, auth (OIDC/OBO/JWT), OpenTelemetry with resource attributes, health checks |
 | `A2A/AspireOllama.A2A.Shared` | Shared A2A protocol models, agent client, and server base class |
+| `A2A/AspireOllama.A2A.CoordinatorAgent` | Multi-agent workflow orchestrator with parallel execution and conflict resolution |
 | `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and multi-agent workflow orchestration |
 | `A2A/AspireOllama.A2A.ReviewerAgent` | Quality assurance agent for reviewing responses and code |
 | `A2A/AspireOllama.A2A.ResearchAgent` | Knowledge gathering and context synthesis agent |
@@ -81,8 +85,8 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - **.NET 10** / **C# 13**
 - **.NET Aspire 13** - Cloud-native orchestration
 - **Ollama** - Local LLM inference
-- **llava** - Vision-capable language model (image analysis)
-- **llama3.1** - Tool-calling language model (function invocation)
+- **Qwen3 (32B)** - Primary chat model with tool calling (RAG search, image analysis delegation)
+- **Qwen2.5-VL (32B)** - Vision model for image analysis (called via tool by Qwen3)
 - **Model Context Protocol (MCP)** - Extensible tool integration
 - **Blazor Server** - Interactive web UI (prerender disabled for clean loading)
 - **MongoDB** - Chat session and message persistence (replaced SQLite)
@@ -111,7 +115,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 dotnet run --project AspireOllama.AppHost
 ```
 
-The first run will download llava, llama3.1, and nomic-embed-text models. This may take several minutes depending on your internet connection.
+The first run will download Qwen3 (32B), Qwen2.5-VL (32B), and nomic-embed-text models. This may take several minutes depending on your internet connection. Model names are configured centrally in `AspireOllama.Shared/OllamaModels.cs`.
 
 ### Access Points
 
@@ -125,7 +129,7 @@ Once running, the Aspire Dashboard will show all service endpoints:
 
 ## Tool Calling
 
-AspireOllama supports automatic tool calling through llama3.1. When you ask questions that require tools, the AI will automatically invoke them.
+Qwen3 supports tool calling natively. The AI decides when to use tools based on the user's question.
 
 ### Built-in Tools
 
@@ -161,6 +165,7 @@ AspireOllama includes specialized AI agents that communicate via the [Agent-to-A
 
 | Agent | Description | Skills |
 |-------|-------------|--------|
+| **Coordinator** | Orchestrates multi-agent workflows with parallel execution, conflict resolution, and aggregation | orchestrate_task |
 | **Planner** | Task planning and workflow orchestration | create_plan, assess_complexity, suggest_agents, orchestrate_workflow |
 | **Reviewer** | Quality assurance and validation | review_response, review_code, review_plan, provide_feedback |
 | **Research** | Knowledge gathering and context synthesis | search_knowledge, get_topic_details, gather_context, suggest_topics |
@@ -219,7 +224,7 @@ Configure built-in tools in `appsettings.json`:
 
 ## Supported File Formats
 
-**Images (processed by llava):**
+**Images (processed by Qwen2.5-VL via analyze_image tool):**
 - JPEG (.jpg, .jpeg)
 - PNG (.png)
 - GIF (.gif)
@@ -236,7 +241,7 @@ Configure built-in tools in `appsettings.json`:
 
 **Chat file attachments:**
 - Maximum 10 files per message, 20MB each
-- Images processed by llava, documents provide inline context
+- Images analyzed by Qwen2.5-VL via tool call, documents extracted inline
 
 **RAG document uploads (`/documents` page):**
 - Maximum 100MB per file
@@ -289,6 +294,64 @@ User asks a question in any chat session
 - **Upload**: Requires `Api.Admin` or `Api.Documents.Manage` role (checked on the access token by the API)
 - **Search**: All authenticated users — RAG context is injected automatically during chat
 - **UI visibility**: Documents button and page access controlled by `UserRoleService` which calls `GET /api/me` to read roles from the access token
+
+## Dual-Model Architecture
+
+The system uses two LLMs behind a single unified persona — the user sees one AI assistant.
+
+### Model Routing
+
+| Request type | Model used | How |
+|-------------|-----------|-----|
+| Text chat | Qwen3 (32B) | Direct chat, tool calling available |
+| "What does the document say about X?" | Qwen3 → `search_knowledge_base` tool | Qwen3 decides to search RAG via Qdrant |
+| Image upload ("describe this") | Qwen3 → `analyze_image` tool → Qwen2.5-VL | Qwen3 delegates to vision model |
+| Follow-up about image ("what color is the logo?") | Qwen3 → `analyze_image` tool → Qwen2.5-VL | Tool retrieves image from MongoDB session history |
+| Document upload via chat (PDF/Word) | Qwen3 (text extracted inline) | No RAG search — file content injected directly |
+| General chat / greetings | Qwen3 (no tools) | Direct response |
+
+### Tools Registered on Qwen3
+
+| Tool | Parameters | When Qwen3 calls it |
+|------|-----------|---------------------|
+| `search_knowledge_base` | `session_id`, `query`, `top_k` | User asks about uploaded documents. Returns results with relevance scores (only >0.5 threshold). |
+| `analyze_image` | `session_id`, `instruction` | User uploads images or asks follow-up questions about images. Retrieves from current request or session history. |
+
+### Model Configuration
+
+All model names are centralized in `AspireOllama.Shared/OllamaModels.cs`:
+
+```csharp
+public static class OllamaModels
+{
+    public const string ChatModel = "qwen3:32b";        // Change to switch chat model
+    public const string VisionModel = "qwen2.5vl:32b";  // Change to switch vision model
+    public const string EmbeddingModel = "nomic-embed-text";
+}
+```
+
+One file change switches models across all services, agents, and the AppHost.
+
+## Coordinator Agent
+
+The Coordinator Agent orchestrates complex multi-agent workflows. The API service delegates workflow requests to the Coordinator with a single A2A call.
+
+### Execution Phases
+
+| Phase | What happens | Agent |
+|-------|-------------|-------|
+| 1. Assess | Evaluate task complexity | Planner |
+| 2. Plan | Create step-by-step execution plan | Planner |
+| 3. Execute | Run subtasks in parallel where possible | Research + Code |
+| 4. Review | Check for conflicts, validate results | Reviewer |
+| 5. Aggregate | Synthesize all results via LLM | Coordinator (local) |
+
+### Features
+- **Parallel execution** of independent subtasks via `Task.WhenAll`
+- **Conflict resolution** — reviewer detects contradictions, conflicting agents re-run with feedback
+- **Retry with backoff** — max 2 retries per subtask, exponential backoff, 5-minute timeout
+- **Result aggregation** — LLM synthesizes all agent outputs into a coherent response
+- **Full artifact tracking** — each phase stored as a named artifact on the task
 
 ## Observability (New Relic)
 
@@ -497,6 +560,7 @@ AspireOllama.Web/
         └── UserProfileMenu.razor # User avatar + sign-out component
 
 AspireOllama.Shared/
+├── OllamaModels.cs               # Central model name constants (change models here)
 ├── ChatSession.cs
 ├── ChatSessionDetails.cs
 ├── ChatHistoryMessage.cs
@@ -509,6 +573,10 @@ AspireOllama.Shared/
 ├── ToolCall.cs
 └── ToolConfiguration.cs
 
+A2A/AspireOllama.A2A.CoordinatorAgent/
+├── Program.cs                    # Service setup, agent discovery (all 4 leaf agents)
+└── CoordinatorA2AServer.cs       # 5-phase orchestration engine
+
 AspireOllama.AppHost/
 ├── AppHost.cs                    # Aspire orchestration (MongoDB, Qdrant, Redis, Ollama, YARP, New Relic)
 └── appsettings.json              # New Relic + OTEL configuration
@@ -519,13 +587,13 @@ AspireOllama.AppHost/
 ### Timeout Errors
 
 If you encounter timeout errors when uploading images:
-- The llava model requires significant processing time for images
+- The Qwen2.5-VL model requires significant processing time for images
 - HTTP timeouts are set to 10 minutes
 - Ensure Ollama has finished loading the model (check Aspire Dashboard logs)
 
 ### 500 Errors from Ollama
 
-- Verify the llava and llama3.1 models are fully downloaded
+- Verify the Qwen3 and Qwen2.5-VL models are fully downloaded
 - Check Ollama container logs in the Aspire Dashboard
 - Test basic chat functionality at `/test-ollama`
 
@@ -539,15 +607,16 @@ If you encounter timeout errors when uploading images:
 ### A2A Agent Connection Issues
 
 - Verify agents are running in Aspire Dashboard
-- Check that `AddOlamaSharpClient("llama3.1")` is called in each agent's Program.cs
+- Check that `AddOlamaSharpClient(OllamaModels.ChatModel)` is called in each agent's Program.cs
 - Agents read Ollama connection from `ConnectionStrings:ollama` (injected by Aspire)
 - Check agent logs for "Failed to connect" errors
 
 ### Tool Calls Not Working
 
 - Ensure you're asking questions that require tools
-- llava (vision model) does not support tool calling
-- Only llama3.1 (text model) can invoke tools
+- Qwen3 handles tool calling (RAG search, image analysis delegation)
+- Qwen2.5-VL handles vision only (no tool calling support)
+- Model names are centralized in `AspireOllama.Shared/OllamaModels.cs`
 
 ### Build Errors (File Locked)
 

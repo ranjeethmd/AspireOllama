@@ -17,12 +17,14 @@ This document provides a comprehensive visual overview of the AspireOllama archi
 9. [Session & Message Flow](#session--message-flow)
 10. [Data Persistence Flow](#data-persistence-flow)
 11. [Service Dependencies](#service-dependencies)
-12. [Infrastructure: MongoDB & Qdrant](#infrastructure-mongodb--qdrant)
-13. [Infrastructure: RAG Pipeline](#infrastructure-rag-pipeline)
-14. [Infrastructure: Redis Token Cache](#infrastructure-redis-token-cache)
-15. [Infrastructure: Observability (New Relic)](#infrastructure-observability-new-relic)
-16. [Infrastructure: YARP Gateway & Let's Encrypt](#infrastructure-yarp-gateway--lets-encrypt)
-17. [Infrastructure: Kubernetes Deployment](#infrastructure-kubernetes-deployment)
+12. [Dual-Model Architecture](#dual-model-architecture)
+13. [Coordinator Agent](#coordinator-agent)
+14. [Infrastructure: MongoDB & Qdrant](#infrastructure-mongodb--qdrant)
+15. [Infrastructure: RAG Pipeline](#infrastructure-rag-pipeline)
+16. [Infrastructure: Redis Token Cache](#infrastructure-redis-token-cache)
+17. [Infrastructure: Observability (New Relic)](#infrastructure-observability-new-relic)
+18. [Infrastructure: YARP Gateway & Let's Encrypt](#infrastructure-yarp-gateway--lets-encrypt)
+19. [Infrastructure: Kubernetes Deployment](#infrastructure-kubernetes-deployment)
 
 ---
 
@@ -1128,6 +1130,58 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │                                                                       │
     └───────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Dual-Model Architecture
+
+Two LLMs behind one unified persona. The user sees one assistant.
+
+```
+User sends message
+  │
+  ├─ Text only ──────────────────────→ Qwen3 (32B)
+  │                                      │
+  │                                      ├─ General chat → direct response
+  │                                      ├─ Document question → search_knowledge_base tool → Qdrant
+  │                                      └─ Image follow-up → analyze_image tool ─┐
+  │                                                                                 │
+  ├─ Image upload ──→ Qwen3 sees      ─→ analyze_image tool ───────────────────────┤
+  │                   "[User uploaded                                                │
+  │                    image.png]"                                                   ▼
+  │                                                                          Qwen2.5-VL (32B)
+  └─ Document upload ──→ Text extracted inline → Qwen3 (no RAG search)       (vision model)
+     via chat              [DO NOT use search_knowledge_base]
+```
+
+**Model names centralized** in `AspireOllama.Shared/OllamaModels.cs` — one file change switches all models.
+
+---
+
+## Coordinator Agent
+
+The Coordinator Agent orchestrates complex multi-agent workflows via the A2A protocol.
+
+```
+User: "Plan and review a security feature in C#"
+  │
+  ▼
+API Service ──→ Coordinator Agent (single A2A call)
+                  │
+                  ├─ Phase 1: Assess complexity ───→ Planner
+                  ├─ Phase 2: Create plan ──────────→ Planner
+                  ├─ Phase 3: Execute subtasks ─────→ Research ──┐
+                  │                                   Code ──────┤ (parallel)
+                  ├─ Phase 4: Review + conflicts ───→ Reviewer   │
+                  │   ├─ Conflicts found? ──→ Re-run with feedback
+                  │   └─ No conflicts ──→ continue
+                  └─ Phase 5: Aggregate results ────→ Local LLM (Qwen3)
+                                                      │
+                                                      ▼
+                                               Coherent response
+```
+
+**Error handling**: 2 retries per subtask, exponential backoff, 5-minute timeout.
 
 ---
 
