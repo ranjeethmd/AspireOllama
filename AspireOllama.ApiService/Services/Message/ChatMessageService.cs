@@ -1,107 +1,72 @@
 using AspireOllama.ApiService.Data;
 using AspireOllama.Shared;
-using Microsoft.EntityFrameworkCore;
+using MongoDB.Driver;
 
 namespace AspireOllama.ApiService.Services.Message;
 
-/// <summary>
-/// Manages chat message persistence in the database.
-/// Single responsibility: CRUD operations for chat messages only.
-/// </summary>
-public class ChatMessageService : IChatMessageService
+public class ChatMessageService(MongoCollections collections) : IChatMessageService
 {
-    private readonly ChatDbContext _context;
-
-    public ChatMessageService(ChatDbContext context)
-    {
-        _context = context;
-    }
-
-    /// <inheritdoc />
     public async Task AddAsync(string sessionId, string role, string content,
         List<ImageAttachment>? images = null, List<FileAttachment>? files = null)
     {
-        var message = new ChatMessageEntity
+        var message = new ChatMessageDocument
         {
             SessionId = sessionId,
             Role = role,
             Content = content,
-            Timestamp = DateTime.UtcNow
-        };
-
-        // Serialize image attachments to JSON for storage
-        if (images is not null && images.Count > 0)
-        {
-            message.SetImages(images.Select(i => new ImageAttachmentData
+            Timestamp = DateTime.UtcNow,
+            Images = images?.Select(i => new ImageAttachmentData
             {
                 FileName = i.FileName,
                 ContentType = i.ContentType,
                 Base64Data = i.Base64Data
-            }).ToList());
-        }
-
-        // Serialize file attachments to JSON for storage
-        if (files is not null && files.Count > 0)
-        {
-            message.SetFiles(files.Select(f => new FileAttachmentData
+            }).ToList() ?? [],
+            Files = files?.Select(f => new FileAttachmentData
             {
                 FileName = f.FileName,
                 ContentType = f.ContentType,
                 Base64Data = f.Base64Data,
                 Type = f.Type
-            }).ToList());
-        }
+            }).ToList() ?? []
+        };
 
-        _context.ChatMessages.Add(message);
-        await _context.SaveChangesAsync();
+        await collections.Messages.InsertOneAsync(message);
     }
 
-    /// <inheritdoc />
     public async Task<List<ChatHistoryMessage>> GetBySessionIdAsync(string sessionId)
     {
-        var messages = await _context.ChatMessages
-            .Where(m => m.SessionId == sessionId)
-            .OrderBy(m => m.Timestamp)
+        var messages = await collections.Messages
+            .Find(m => m.SessionId == sessionId)
+            .SortBy(m => m.Timestamp)
             .ToListAsync();
 
         return messages.Select(ToDto).ToList();
     }
 
-    /// <inheritdoc />
     public async Task<int> GetCountAsync(string sessionId)
     {
-        return await _context.ChatMessages.CountAsync(m => m.SessionId == sessionId);
+        return (int)await collections.Messages.CountDocumentsAsync(m => m.SessionId == sessionId);
     }
 
-    // ============================================================
-    // DTO Conversion
-    // ============================================================
-
-    private static ChatHistoryMessage ToDto(ChatMessageEntity entity)
+    private static ChatHistoryMessage ToDto(ChatMessageDocument doc) => new()
     {
-        var images = entity.GetImages();
-        var files = entity.GetFiles();
-
-        return new ChatHistoryMessage
+        Id = doc.Id,
+        SessionId = doc.SessionId,
+        Role = doc.Role,
+        Content = doc.Content,
+        Images = doc.Images.Select(i => new ImageAttachment
         {
-            Id = entity.Id,
-            SessionId = entity.SessionId,
-            Role = entity.Role,
-            Content = entity.Content,
-            Images = images.Select(i => new ImageAttachment
-            {
-                FileName = i.FileName,
-                ContentType = i.ContentType,
-                Base64Data = i.Base64Data
-            }).ToList(),
-            Files = files.Select(f => new FileAttachment
-            {
-                FileName = f.FileName,
-                ContentType = f.ContentType,
-                Base64Data = f.Base64Data,
-                Type = f.Type
-            }).ToList(),
-            Timestamp = entity.Timestamp
-        };
-    }
+            FileName = i.FileName,
+            ContentType = i.ContentType,
+            Base64Data = i.Base64Data
+        }).ToList(),
+        Files = doc.Files.Select(f => new FileAttachment
+        {
+            FileName = f.FileName,
+            ContentType = f.ContentType,
+            Base64Data = f.Base64Data,
+            Type = f.Type
+        }).ToList(),
+        Timestamp = doc.Timestamp
+    };
 }

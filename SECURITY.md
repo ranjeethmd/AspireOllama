@@ -351,9 +351,13 @@ public class SecureWeatherTool
 
 ### Token Caching
 
-- YARP caches tokens in `IDistributedCache` (Redis recommended for production)
+- MSAL token cache uses **Redis** via `AddDistributedTokenCaches()` (replaces in-memory)
+- Redis deployed automatically by Aspire via `builder.AddRedis("redis")`
+- Web frontend registers `AddRedisDistributedCache("redis")` for the `IDistributedCache` backing store
+- Tokens survive restarts and are shared across multiple instances
 - Token refresh handled automatically before expiration
 - OBO tokens cached per user + scope combination
+- `ChatApiClient.EnsureAuthenticatedAsync()` checks auth state before calling MSAL, redirecting to sign-in if unauthenticated (prevents `user_null` exceptions on circuit reconnect)
 
 ### Rate Limiting
 
@@ -407,13 +411,19 @@ For local development without full identity provider setup:
 
 ## Deployment Checklist
 
-- [ ] Register applications in Entra ID
-- [ ] Configure app secrets in Key Vault
+- [ ] Register applications in Entra ID (see `infra/terraform/`)
+- [ ] Configure app secrets in Key Vault or K8s Secrets (`k8s/base/secrets.yaml`)
 - [ ] Set up redirect URIs for each environment
 - [ ] Configure CORS policies
 - [ ] Enable HTTPS everywhere
-- [ ] Configure token caching (Redis)
+- [x] Configure token caching (Redis) — deployed via Aspire, uses `AddDistributedTokenCaches()`
+- [x] Configure observability (New Relic) — OTLP export with service names and resource attributes
+- [x] Replace SQLite with MongoDB — chat persistence with native document storage
+- [x] Add Qdrant vector database — RAG document storage with dot product similarity
+- [x] Role-based document upload — `Api.Admin` / `Api.Documents.Manage` on access token
+- [x] User profile from access token — `GET /api/me` returns roles, cached by `UserRoleService`
 - [ ] Set up audit logging
 - [ ] Configure rate limiting
 - [ ] Test OBO flow end-to-end
 - [ ] Verify tool scope restrictions
+- [ ] Deploy to Kubernetes (`k8s/base/`) with nginx Ingress replacing YARP gateway

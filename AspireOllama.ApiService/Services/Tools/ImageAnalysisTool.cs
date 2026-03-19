@@ -57,7 +57,7 @@ public class ImageAnalysisTool : ITool
     /// <returns>The analysis result from the vision model.</returns>
     [Description("Analyzes images using AI vision. Use this tool when the user uploads images and wants you to describe them, extract text, identify objects, answer questions about them, or understand visual content. This tool processes all uploaded images.")]
     public async Task<string> AnalyzeImageAsync(
-        [Description("The question or instruction about the image(s). Examples: 'Describe this image', 'What text is visible?', 'Identify objects', 'What is shown in this diagram?'")]
+        [Description("This tool supports data in image format. The question or instruction about the image(s). Examples: 'Describe this image', 'What text is visible?', 'Identify objects', 'What is shown in this diagram?'")]
         string instruction,
         CancellationToken cancellationToken = default)
     {

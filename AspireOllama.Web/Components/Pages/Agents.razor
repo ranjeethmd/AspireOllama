@@ -4,7 +4,7 @@
 @using System.Text.Json
 @inject ChatApiClient ChatClient
 @inject NavigationManager Navigation
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>A2A Agents</PageTitle>
 
@@ -65,6 +65,7 @@
                 </svg>
                 Refresh
             </button>
+            <AspireOllama.Web.Components.Shared.UserProfileMenu />
         </div>
     </div>
 
@@ -1418,7 +1419,7 @@
 
     private void NavigateToChat()
     {
-        Navigation.NavigateTo("/");
+        Navigation.NavigateTo("/", forceLoad: true);
     }
 
     private async Task LoadAgents()

@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AspireOllama.Gateway\AspireOllama.Gateway.csproj" />
     <ProjectReference Include="..\AspireOllama.ApiService\AspireOllama.ApiService.csproj" />
     <ProjectReference Include="..\AspireOllama.McpServer\AspireOllama.McpServer.csproj" />
     <ProjectReference Include="..\AspireOllama.Web\AspireOllama.Web.csproj" />
@@ -19,9 +20,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.MongoDB" Version="10.4.0" />
+    <PackageReference Include="Aspire.Hosting.Qdrant" Version="13.1.2" />
     <PackageReference Include="Aspire.Hosting.Redis" Version="13.1.2" />
-    <PackageReference Include="Aspire.Hosting.Yarp" Version="13.1.2" />
-    <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.1.1" />
+<PackageReference Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.1.1" />
     <PackageReference Include="Scalar.Aspire" Version="0.9.9" />
   </ItemGroup>
 

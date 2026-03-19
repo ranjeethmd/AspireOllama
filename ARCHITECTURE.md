@@ -17,6 +17,12 @@ This document provides a comprehensive visual overview of the AspireOllama archi
 9. [Session & Message Flow](#session--message-flow)
 10. [Data Persistence Flow](#data-persistence-flow)
 11. [Service Dependencies](#service-dependencies)
+12. [Infrastructure: MongoDB & Qdrant](#infrastructure-mongodb--qdrant)
+13. [Infrastructure: RAG Pipeline](#infrastructure-rag-pipeline)
+14. [Infrastructure: Redis Token Cache](#infrastructure-redis-token-cache)
+15. [Infrastructure: Observability (New Relic)](#infrastructure-observability-new-relic)
+16. [Infrastructure: YARP Gateway & Let's Encrypt](#infrastructure-yarp-gateway--lets-encrypt)
+17. [Infrastructure: Kubernetes Deployment](#infrastructure-kubernetes-deployment)
 
 ---
 
@@ -1114,10 +1120,286 @@ AspireOllama is a distributed AI chat application with the following key capabil
     ┌───────────────────────────────────────────────────────────────────────┐
     │                         INFRASTRUCTURE                                │
     │                                                                       │
-    │   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                │
-    │   │    .NET     │   │   Ollama    │   │   SQLite    │                │
-    │   │   Aspire    │   │  (Docker)   │   │             │                │
-    │   └─────────────┘   └─────────────┘   └─────────────┘                │
+    │  ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌────────┐│
+    │  │ .NET  │ │Ollama │ │MongoDB│ │Qdrant │ │ Redis │ │  New  │ │ Let's  ││
+    │  │Aspire │ │(Docker│ │(Chat) │ │(RAG)  │ │(Token │ │ Relic │ │Encrypt ││
+    │  │       │ │  GPU) │ │       │ │       │ │Cache) │ │(OTLP) │ │(ACME)  ││
+    │  └───────┘ └───────┘ └───────┘ └───────┘ └───────┘ └───────┘ └────────┘│
     │                                                                       │
     └───────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Infrastructure: MongoDB & Qdrant
+
+MongoDB stores chat persistence, Qdrant stores document vectors for RAG.
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                        Data Layer                                  │
+│                                                                    │
+│  ┌─────────────────────┐          ┌─────────────────────────┐    │
+│  │      MongoDB        │          │        Qdrant            │    │
+│  │                     │          │                          │    │
+│  │  chat_sessions      │          │  document_chunks         │    │
+│  │  • Id, Title        │          │  (dot product distance)  │    │
+│  │  • CreatedAt        │          │                          │    │
+│  │  • UpdatedAt        │          │  • vector (float[])      │    │
+│  │                     │          │  • file_name             │    │
+│  │  chat_messages      │          │  • chunk_index           │    │
+│  │  • SessionId        │          │  • text                  │    │
+│  │  • Role, Content    │          │                          │    │
+│  │  • Images, Files    │          │  Global — not scoped     │    │
+│  │  • Timestamp        │          │  to sessions             │    │
+│  └─────────────────────┘          └─────────────────────────┘    │
+│                                                                    │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Infrastructure: RAG Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Document Ingestion (Admin: /documents page)                        │
+│                                                                     │
+│  File (PDF/Word/Excel/PPT/Text, up to 100MB)                      │
+│    │                                                                │
+│    ▼                                                                │
+│  DocumentProcessingService.ExtractText()                            │
+│    │                                                                │
+│    ▼                                                                │
+│  TextChunkingService.ChunkText()                                    │
+│  (512 chars, 64 overlap, sentence-boundary splitting)               │
+│    │                                                                │
+│    ▼                                                                │
+│  OllamaEmbeddingService.GetEmbeddingsAsync()                       │
+│  (nomic-embed-text model)                                           │
+│    │                                                                │
+│    ▼                                                                │
+│  Qdrant.UpsertAsync() — stored with dot product distance            │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  Chat Query (Any user, any session)                                 │
+│                                                                     │
+│  User question                                                      │
+│    │                                                                │
+│    ▼                                                                │
+│  OllamaEmbeddingService.GetEmbeddingAsync()                        │
+│    │                                                                │
+│    ▼                                                                │
+│  Qdrant.SearchAsync() — dot product, top 5, score > 0.3            │
+│  (searches ALL documents globally)                                  │
+│    │                                                                │
+│    ▼                                                                │
+│  [RELEVANT CONTEXT from uploaded documents]                         │
+│  [From report.pdf, section 3]: ...chunk text...                     │
+│  [END CONTEXT]                                                      │
+│                                                                     │
+│  User's question here                                               │
+│    │                                                                │
+│    ▼                                                                │
+│  LLM (llama3.1) responds using retrieved context                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Authorization:**
+- Upload: `Api.Admin` or `Api.Documents.Manage` (access token)
+- Search: All authenticated users (automatic during chat)
+- UI: `UserRoleService` reads roles from `GET /api/me` (access token), cached per circuit
+
+---
+
+## Infrastructure: Redis Token Cache
+
+Redis is deployed by Aspire as a distributed cache for MSAL token storage.
+
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   Web Frontend   │     │      Redis       │     │   Azure AD       │
+│   (Blazor)       │     │  (Token Cache)   │     │   (Entra ID)     │
+└────────┬─────────┘     └────────┬─────────┘     └────────┬─────────┘
+         │                        │                        │
+         │ 1. User signs in       │                        │
+         │        (OIDC + PKCE)   │                        │
+         │────────────────────────────────────────────────▶│
+         │                        │                        │
+         │ 2. Tokens received     │                        │
+         │◀────────────────────────────────────────────────│
+         │                        │                        │
+         │ 3. Cache tokens        │                        │
+         │  (AddDistributed       │                        │
+         │   TokenCaches)         │                        │
+         │───────────────────────▶│                        │
+         │                        │                        │
+         │ 4. Later: OBO call     │                        │
+         │  (check cache first)   │                        │
+         │───────────────────────▶│                        │
+         │  Cache hit → use token │                        │
+         │◀───────────────────────│                        │
+         │                        │                        │
+```
+
+**Key points:**
+- Replaces `AddInMemoryTokenCaches()` with `AddDistributedTokenCaches()`
+- Tokens survive app restarts and scale across instances
+- `ChatApiClient.EnsureAuthenticatedAsync()` checks auth state before MSAL calls, preventing `user_null` exceptions on Blazor circuit reconnect
+
+---
+
+## Infrastructure: Observability (New Relic)
+
+All services export OpenTelemetry data to New Relic via OTLP.
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                        AppHost Configuration                       │
+│                                                                    │
+│  NewRelic:LicenseKey ─────┐                                       │
+│  NewRelic:OtlpEndpoint ───┤  Sets env vars on all services:       │
+│  Otel:ServiceNamespace ───┤  OTEL_SERVICE_NAME                    │
+│  Otel:ServiceVersion ─────┤  OTEL_Service_Namespace               │
+│  Otel:DeploymentEnv ──────┘  OTEL_Service_Version                 │
+│                              OTEL_Deployment_Environment           │
+│                              OTEL_EXPORTER_OTLP_ENDPOINT          │
+│                              OTEL_EXPORTER_OTLP_HEADERS           │
+│                              OTEL_EXPORTER_OTLP_PROTOCOL          │
+└────────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ ApiService  │  │ Web Frontend│  │ McpServer   │  │ A2A Agents  │
+│             │  │             │  │             │  │ (4 agents)  │
+└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       │                │                │                │
+       └────────────────┴────────────────┴────────────────┘
+                                │
+                    ┌───────────▼───────────┐
+                    │   ServiceDefaults     │
+                    │   ConfigureResource:  │
+                    │   • service.name      │
+                    │   • service.namespace │
+                    │   • service.version   │
+                    │   • deployment.env    │
+                    │                       │
+                    │   UseOtlpExporter()   │
+                    └───────────┬───────────┘
+                                │ OTLP (http/protobuf)
+                                ▼
+                    ┌───────────────────────┐
+                    │      New Relic        │
+                    │  otlp.nr-data.net     │
+                    │                       │
+                    │  Traces │ Metrics │   │
+                    │         │ Logs    │   │
+                    └───────────────────────┘
+```
+
+---
+
+## Infrastructure: YARP Gateway & Let's Encrypt
+
+The YARP Gateway (`AspireOllama.Gateway`) is a standalone project that serves as the single entry point for all traffic. It uses LettuceEncrypt for automatic TLS certificate provisioning via Let's Encrypt ACME protocol.
+
+```
+                         ┌───────────────────────┐
+                         │    Let's Encrypt       │
+                         │   (ACME CA Server)     │
+                         └───────────┬───────────┘
+                                     │
+                          ACME HTTP-01 Challenge
+                          (auto-provision + renew)
+                                     │
+┌────────────────────────────────────┼────────────────────────────────┐
+│                           YARP Gateway                              │
+│                    (AspireOllama.Gateway)                            │
+│                                    │                                │
+│  ┌──────────────┐   ┌─────────────▼──────────────┐                 │
+│  │  Kestrel     │   │     LettuceEncrypt         │                 │
+│  │  :8080 HTTP  │   │  • Auto TLS provisioning   │                 │
+│  │  :8443 HTTPS │◀──│  • Certificate renewal     │                 │
+│  │              │   │  • ACME challenge handler   │                 │
+│  └──────┬───────┘   └────────────────────────────┘                 │
+│         │                                                           │
+│  ┌──────▼───────────────────────────────────────────────────────┐  │
+│  │                    YARP Reverse Proxy                         │  │
+│  │  (config-based routes with Aspire service discovery)         │  │
+│  │                                                              │  │
+│  │  /api/*            → apiservice                              │  │
+│  │  /mcp/*            → mcpserver                               │  │
+│  │  /a2a/planner/*    → planner-agent                           │  │
+│  │  /a2a/reviewer/*   → reviewer-agent                          │  │
+│  │  /a2a/research/*   → research-agent                          │  │
+│  │  /a2a/code/*       → code-agent                              │  │
+│  │  /scalar/*         → scalar                                  │  │
+│  │  /* (catch-all)    → webfrontend                             │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                    OTEL Proxy Logging                        │  │
+│  │  • Structured logs per request (route, cluster, status, ms) │  │
+│  │  • Activity tags: gateway.route, gateway.cluster,           │  │
+│  │    gateway.upstream.status_code, gateway.upstream.duration   │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+         │
+         │  https+http:// (Aspire service discovery)
+         ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│ Web Frontend│ │ API Service │ │ MCP Server  │ │ A2A Agents  │
+│ (Blazor)    │ │ (Chat API)  │ │ (Tools)     │ │ (4 agents)  │
+└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+```
+
+**Let's Encrypt behavior:**
+- **Domain configured** (`LettuceEncrypt:DomainNames` non-empty): LettuceEncrypt provisions TLS cert via ACME HTTP-01 challenge on port 8080, serves HTTPS on 8443, auto-renews before expiry
+- **Domain empty** (Aspire dev): LettuceEncrypt and Kestrel port config are skipped — Aspire controls ports
+- Certificates persisted in a Docker volume (`letsencrypt-certs`) to survive container restarts
+
+---
+
+## Infrastructure: Kubernetes Deployment
+
+In Kubernetes, the YARP Gateway runs as a deployment with a LoadBalancer or Ingress in front.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Kubernetes Cluster                           │
+│                        Namespace: aspireollama                      │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                YARP Gateway (+ Let's Encrypt)                │   │
+│  │  /api/*  → apiservice      /a2a/planner/*  → planner-agent  │   │
+│  │  /mcp/*  → mcpserver       /a2a/reviewer/* → reviewer-agent │   │
+│  │  /scalar/* → scalar        /a2a/research/* → research-agent │   │
+│  │  /*      → webfrontend     /a2a/code/*     → code-agent     │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                │                                    │
+│       ┌──────────┬─────────────┼─────────────┬──────────┐          │
+│       ▼          ▼             ▼             ▼          ▼          │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐    │
+│  │   Web   │ │   API   │ │   MCP   │ │  A2A x4 │ │  Ollama │    │
+│  │Frontend │ │ Service │ │ Server  │ │ Agents  │ │  (GPU)  │    │
+│  └────┬────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘    │
+│       │                                                            │
+│       ▼                                                            │
+│  ┌─────────┐     ConfigMaps:          Secrets:                     │
+│  │  Redis  │     • otel-config        • azure-ad-web               │
+│  │  (PVC)  │     • service-discovery  • azure-ad-backend           │
+│  └─────────┘     • downstream-apis    • newrelic                   │
+│                  • azure-ad-common                                  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Docker build** uses a single multi-stage `Dockerfile`:
+```bash
+docker build --build-arg PROJECT=AspireOllama.Web -t aspireollama-web .
+```
+
+**Deploy** with Kustomize:
+```bash
+kubectl apply -k k8s/base/
 ```

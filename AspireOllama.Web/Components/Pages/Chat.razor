@@ -4,7 +4,8 @@
 @using AspireOllama.Shared
 @inject ChatApiClient ChatClient
 @inject NavigationManager Navigation
-@rendermode InteractiveServer
+@inject UserRoleService RoleService
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>AI Agent</PageTitle>
 
@@ -53,10 +54,23 @@
                 </svg>
                 A2A Agents
             </button>
+            @if (RoleService.Profile.CanManageDocuments)
+            {
+                <button class="agents-link-btn" @onclick="NavigateToDocuments">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="12" y1="18" x2="12" y2="12"/>
+                        <line x1="9" y1="15" x2="15" y2="15"/>
+                    </svg>
+                    Documents
+                </button>
+            }
             <div class="agent-status">
                 <span class="status-dot @(isLoading ? "processing" : "ready")"></span>
                 <span class="status-text">@(isLoading ? "Processing..." : "Ready")</span>
             </div>
+            <AspireOllama.Web.Components.Shared.UserProfileMenu />
         </div>
     </div>
 
@@ -1342,6 +1356,7 @@
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
+        await RoleService.EnsureLoadedAsync();
         await LoadSessions();
 
         // Determine which session to activate
@@ -1360,6 +1375,7 @@
             // Load most recent session
             await LoadSession(sessions[0].Id);
         }
+
     }
 
     // ============================================================
@@ -1368,7 +1384,12 @@
 
     private void NavigateToAgents()
     {
-        Navigation.NavigateTo("/agents");
+        Navigation.NavigateTo("/agents", forceLoad: true);
+    }
+
+    private void NavigateToDocuments()
+    {
+        Navigation.NavigateTo("/documents", forceLoad: true);
     }
 
     // ============================================================

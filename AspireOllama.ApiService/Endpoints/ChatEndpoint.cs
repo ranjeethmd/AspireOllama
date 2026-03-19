@@ -1,4 +1,5 @@
 using AspireOllama.ApiService.Services.AI;
+using AspireOllama.ApiService.Services.Document;
 using AspireOllama.ApiService.Services.Message;
 using AspireOllama.ApiService.Services.Session;
 using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
@@ -25,16 +26,6 @@ public class ChatEndpoint(
         {
             logger.LogInformation("Chat request for session {SessionId}, Images: {ImageCount}, Files: {FileCount}",
                 req.SessionId, req.Images?.Count ?? 0, req.Files?.Count ?? 0);
-
-            // Log file details for debugging
-            if (req.Files is { Count: > 0 })
-            {
-                foreach (var file in req.Files)
-                {
-                    logger.LogInformation("Received file: {FileName}, Type: {Type}, ContentType: {ContentType}",
-                        file.FileName, file.Type, file.ContentType);
-                }
-            }
 
             var history = await messageService.GetBySessionIdAsync(req.SessionId);
             var result = await aiService.GetResponseWithToolsAsync(req, history, ct);

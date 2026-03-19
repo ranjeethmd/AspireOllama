@@ -28,9 +28,11 @@ data "azuread_client_config" "current" {}
 resource "random_uuid" "scope_access_as_user" {}
 
 resource "random_uuid" "role_api_access" {}
+resource "random_uuid" "role_api_admin" {}
 resource "random_uuid" "role_api_chat_read" {}
 resource "random_uuid" "role_api_chat_write" {}
 resource "random_uuid" "role_api_sessions_manage" {}
+resource "random_uuid" "role_api_documents_manage" {}
 
 resource "random_uuid" "role_mcp_access" {}
 resource "random_uuid" "role_mcp_tools_get_time" {}
@@ -89,7 +91,7 @@ resource "azuread_application" "api" {
   }
 
   # ---------------------------------------------------------------------------
-  # App Roles (RBAC) — 29 roles
+  # App Roles (RBAC) — 31 roles
   # ---------------------------------------------------------------------------
 
   # ── API Service Roles ──
@@ -122,6 +124,22 @@ resource "azuread_application" "api" {
     value                = "Api.Sessions.Manage"
     display_name         = "Manage Sessions"
     description          = "Create and delete chat sessions"
+    allowed_member_types = ["User"]
+    enabled              = true
+  }
+  app_role {
+    id                   = random_uuid.role_api_admin.result
+    value                = "Api.Admin"
+    display_name         = "API Admin"
+    description          = "Full administrative access including document management"
+    allowed_member_types = ["User"]
+    enabled              = true
+  }
+  app_role {
+    id                   = random_uuid.role_api_documents_manage.result
+    value                = "Api.Documents.Manage"
+    display_name         = "Manage Documents"
+    description          = "Upload and manage documents in the RAG vector store"
     allowed_member_types = ["User"]
     enabled              = true
   }
@@ -336,6 +354,13 @@ resource "azuread_application" "api" {
     enabled              = true
   }
 
+  # Include "roles" in access tokens so backend services can read app roles
+  optional_claims {
+    access_token {
+      name = "roles"
+    }
+  }
+
   # Microsoft Graph — User.Read (delegated, default permission)
   required_resource_access {
     resource_app_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
@@ -491,7 +516,7 @@ resource "azuread_group" "power_user" {
 
 resource "azuread_group" "admin" {
   display_name     = "AspireOllama - Admin"
-  description      = "Full access to all 29 app roles"
+  description      = "Full access to all 31 app roles"
   mail_enabled     = false
   security_enabled = true
   types            = []
@@ -517,10 +542,10 @@ resource "azuread_app_role_assignment" "viewer_api_chat_read" {
 
 locals {
   standard_user_roles = {
-    api_access             = random_uuid.role_api_access.result
-    api_chat_read          = random_uuid.role_api_chat_read.result
-    api_chat_write         = random_uuid.role_api_chat_write.result
-    api_sessions_manage    = random_uuid.role_api_sessions_manage.result
+    api_access              = random_uuid.role_api_access.result
+    api_chat_read           = random_uuid.role_api_chat_read.result
+    api_chat_write          = random_uuid.role_api_chat_write.result
+    api_sessions_manage     = random_uuid.role_api_sessions_manage.result
     mcp_access             = random_uuid.role_mcp_access.result
     mcp_tools_get_time     = random_uuid.role_mcp_tools_get_time.result
     mcp_tools_get_weather  = random_uuid.role_mcp_tools_get_weather.result
@@ -552,8 +577,14 @@ locals {
     a2a_code_refactor_code          = random_uuid.role_a2a_code_refactor_code.result
   }
 
-  # Admin = all roles (Standard User + Power User extras)
-  all_roles = merge(local.standard_user_roles, local.power_user_extra_roles)
+  # Admin-only roles
+  admin_only_roles = {
+    api_admin              = random_uuid.role_api_admin.result
+    api_documents_manage   = random_uuid.role_api_documents_manage.result
+  }
+
+  # Admin = all roles (Standard User + Power User extras + Admin only)
+  all_roles = merge(local.standard_user_roles, local.power_user_extra_roles, local.admin_only_roles)
 }
 
 resource "azuread_app_role_assignment" "standard_user" {
@@ -585,7 +616,7 @@ resource "azuread_app_role_assignment" "power_user_a2a" {
 }
 
 # =============================================================================
-# Role Assignments — Admin (all 29 roles)
+# Role Assignments — Admin (all 31 roles)
 # =============================================================================
 
 resource "azuread_app_role_assignment" "admin" {

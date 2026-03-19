@@ -81,6 +81,20 @@ public class ChatApiClient(
         }
     }
 
+    public async Task<UserInfo> GetMyProfileAsync(CancellationToken cancellationToken = default)
+    {
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.GetForUserAsync<UserInfo>(
+                ApiName,
+                options => options.RelativePath = "api/me",
+                user,
+                cancellationToken: cancellationToken)
+                ?? new UserInfo();
+        }) ?? new UserInfo();
+    }
+
     public async Task<ChatMessageResponse> SendMessageAsync(ChatMessageRequest request, CancellationToken cancellationToken = default)
     {
         return await CallWithReauthAsync(async () =>
@@ -158,6 +172,24 @@ public class ChatApiClient(
                 cancellationToken: cancellationToken);
             return response.IsSuccessStatusCode;
         }) is true;
+    }
+
+    // ============================================================
+    // Document Upload (RAG)
+    // ============================================================
+
+    public async Task<DocumentUploadResponse> UploadDocumentsAsync(DocumentUploadRequest request, CancellationToken cancellationToken = default)
+    {
+        return await CallWithReauthAsync(async () =>
+        {
+            var user = await GetUserAsync();
+            return await downstreamApi.PostForUserAsync<DocumentUploadRequest, DocumentUploadResponse>(
+                ApiName, request,
+                options => options.RelativePath = "api/documents/upload",
+                user,
+                cancellationToken: cancellationToken)
+                ?? new DocumentUploadResponse();
+        }) ?? new DocumentUploadResponse();
     }
 
     // ============================================================

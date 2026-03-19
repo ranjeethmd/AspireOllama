@@ -1,26 +1,14 @@
 using AspireOllama.ApiService.Data;
 using AspireOllama.Shared;
-using Microsoft.EntityFrameworkCore;
+using MongoDB.Driver;
 
 namespace AspireOllama.ApiService.Services.Session;
 
-/// <summary>
-/// Manages chat session persistence in the database.
-/// Single responsibility: CRUD operations for chat sessions only.
-/// </summary>
-public class SessionService : ISessionService
+public class SessionService(MongoCollections collections) : ISessionService
 {
-    private readonly ChatDbContext _context;
-
-    public SessionService(ChatDbContext context)
-    {
-        _context = context;
-    }
-
-    /// <inheritdoc />
     public async Task<ChatSession> CreateAsync()
     {
-        var session = new ChatSessionEntity
+        var session = new ChatSessionDocument
         {
             Id = Guid.NewGuid().ToString(),
             Title = "New Chat",
@@ -28,32 +16,32 @@ public class SessionService : ISessionService
             UpdatedAt = DateTime.UtcNow
         };
 
-        _context.ChatSessions.Add(session);
-        await _context.SaveChangesAsync();
-
+        await collections.Sessions.InsertOneAsync(session);
         return ToDto(session);
     }
 
-    /// <inheritdoc />
     public async Task<List<ChatSession>> GetAllAsync()
     {
-        var sessions = await _context.ChatSessions
-            .OrderByDescending(s => s.UpdatedAt)
+        var sessions = await collections.Sessions
+            .Find(FilterDefinition<ChatSessionDocument>.Empty)
+            .SortByDescending(s => s.UpdatedAt)
             .ToListAsync();
 
         return sessions.Select(ToDto).ToList();
     }
 
-    /// <inheritdoc />
     public async Task<ChatSessionDetails?> GetByIdAsync(string sessionId)
     {
-        var session = await _context.ChatSessions.FindAsync(sessionId);
+        var session = await collections.Sessions
+            .Find(s => s.Id == sessionId)
+            .FirstOrDefaultAsync();
+
         if (session is null)
             return null;
 
-        var messages = await _context.ChatMessages
-            .Where(m => m.SessionId == sessionId)
-            .OrderBy(m => m.Timestamp)
+        var messages = await collections.Messages
+            .Find(m => m.SessionId == sessionId)
+            .SortBy(m => m.Timestamp)
             .ToListAsync();
 
         return new ChatSessionDetails
@@ -66,78 +54,58 @@ public class SessionService : ISessionService
         };
     }
 
-    /// <inheritdoc />
     public async Task<bool> DeleteAsync(string sessionId)
     {
-        var session = await _context.ChatSessions.FindAsync(sessionId);
-        if (session is null)
+        var result = await collections.Sessions.DeleteOneAsync(s => s.Id == sessionId);
+        if (result.DeletedCount == 0)
             return false;
 
-        _context.ChatSessions.Remove(session);
-        await _context.SaveChangesAsync();
+        await collections.Messages.DeleteManyAsync(m => m.SessionId == sessionId);
         return true;
     }
 
-    /// <inheritdoc />
     public async Task UpdateTitleAsync(string sessionId, string title)
     {
-        var session = await _context.ChatSessions.FindAsync(sessionId);
-        if (session is null)
-            return;
-
-        // Truncate long titles
-        session.Title = title.Length > 50 ? title.Substring(0, 47) + "..." : title;
-        await _context.SaveChangesAsync();
+        var truncated = title.Length > 50 ? title[..47] + "..." : title;
+        await collections.Sessions.UpdateOneAsync(
+            s => s.Id == sessionId,
+            Builders<ChatSessionDocument>.Update.Set(s => s.Title, truncated));
     }
 
-    /// <inheritdoc />
     public async Task TouchAsync(string sessionId)
     {
-        var session = await _context.ChatSessions.FindAsync(sessionId);
-        if (session is null)
-            return;
-
-        session.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+        await collections.Sessions.UpdateOneAsync(
+            s => s.Id == sessionId,
+            Builders<ChatSessionDocument>.Update.Set(s => s.UpdatedAt, DateTime.UtcNow));
     }
 
-    // ============================================================
-    // DTO Conversion Methods
-    // ============================================================
-
-    private static ChatSession ToDto(ChatSessionEntity entity) => new()
+    private static ChatSession ToDto(ChatSessionDocument doc) => new()
     {
-        Id = entity.Id,
-        Title = entity.Title,
-        CreatedAt = entity.CreatedAt,
-        UpdatedAt = entity.UpdatedAt
+        Id = doc.Id,
+        Title = doc.Title,
+        CreatedAt = doc.CreatedAt,
+        UpdatedAt = doc.UpdatedAt
     };
 
-    private static ChatHistoryMessage ToMessageDto(ChatMessageEntity entity)
+    private static ChatHistoryMessage ToMessageDto(ChatMessageDocument doc) => new()
     {
-        var images = entity.GetImages();
-        var files = entity.GetFiles();
-
-        return new ChatHistoryMessage
+        Id = doc.Id,
+        SessionId = doc.SessionId,
+        Role = doc.Role,
+        Content = doc.Content,
+        Images = doc.Images.Select(i => new ImageAttachment
         {
-            Id = entity.Id,
-            SessionId = entity.SessionId,
-            Role = entity.Role,
-            Content = entity.Content,
-            Images = images.Select(i => new ImageAttachment
-            {
-                FileName = i.FileName,
-                ContentType = i.ContentType,
-                Base64Data = i.Base64Data
-            }).ToList(),
-            Files = files.Select(f => new FileAttachment
-            {
-                FileName = f.FileName,
-                ContentType = f.ContentType,
-                Base64Data = f.Base64Data,
-                Type = f.Type
-            }).ToList(),
-            Timestamp = entity.Timestamp
-        };
-    }
+            FileName = i.FileName,
+            ContentType = i.ContentType,
+            Base64Data = i.Base64Data
+        }).ToList(),
+        Files = doc.Files.Select(f => new FileAttachment
+        {
+            FileName = f.FileName,
+            ContentType = f.ContentType,
+            Base64Data = f.Base64Data,
+            Type = f.Type
+        }).ToList(),
+        Timestamp = doc.Timestamp
+    };
 }

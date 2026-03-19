@@ -1,0 +1,355 @@
+@page "/documents"
+@using AspireOllama.Web
+@using AspireOllama.Shared
+@attribute [Authorize]
+@inject NavigationManager Navigation
+@inject UserRoleService RoleService
+@inject IJSRuntime JS
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Document Management</PageTitle>
+
+@if (RoleService.IsLoaded && !RoleService.Profile.CanManageDocuments)
+{
+    <div class="doc-denied">
+        <h2>Access Denied</h2>
+        <p>You need the Api.Admin or Api.Documents.Manage role to access this page.</p>
+        <button class="back-btn" @onclick="NavigateToChat">Back to Chat</button>
+    </div>
+    return;
+}
+
+<div class="doc-layout">
+    <div class="doc-sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="12" y1="18" x2="12" y2="12"/>
+                    <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+            </div>
+            <span class="brand-text">RAG Documents</span>
+        </div>
+
+        <button class="nav-link-btn" @onclick="NavigateToChat">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Back to Chat
+        </button>
+
+        <div class="sidebar-info">
+            <h3>How it works</h3>
+            <p>Upload documents here to build a global knowledge base. All chat sessions will automatically search this knowledge base when answering questions.</p>
+            <h3>Supported formats</h3>
+            <ul>
+                <li>PDF</li>
+                <li>Word (.doc, .docx)</li>
+                <li>Excel (.xls, .xlsx)</li>
+                <li>PowerPoint (.ppt, .pptx)</li>
+                <li>Text, CSV, Markdown, JSON, XML</li>
+            </ul>
+        </div>
+
+        <AspireOllama.Web.Components.Shared.UserProfileMenu />
+    </div>
+
+    <div class="doc-main">
+        <div class="doc-header">
+            <h1>Upload Documents to Knowledge Base</h1>
+            <p class="doc-subtitle">Documents are chunked, embedded, and stored in the vector database. All chat sessions search this knowledge base automatically.</p>
+        </div>
+
+        <div class="doc-upload-area">
+            <label class="upload-zone">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <p>Click to select files</p>
+                <span class="upload-hint">Max 100MB per file</span>
+                <input type="file" id="doc-file-input"
+                       accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.md,.json,.xml,.log"
+                       multiple style="display:none" />
+            </label>
+
+            <div id="pending-files-list" style="display:none">
+                <div class="pending-files">
+                    <h3>Selected Files (<span id="file-count">0</span>)</h3>
+                    <div id="file-list-items"></div>
+                    <button class="upload-btn" id="upload-btn" onclick="window.docUpload.upload()">
+                        Upload to Knowledge Base
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <div class="upload-results">
+                <h3>@statusMessage</h3>
+            </div>
+        }
+
+        @if (uploadResult is not null)
+        {
+            <div class="upload-results">
+                <h3>Upload Results - @uploadResult.TotalChunks total chunks created</h3>
+                @foreach (var result in uploadResult.Results)
+                {
+                    <div class="result-item @(result.Success ? "success" : "error")">
+                        <span class="result-icon">@(result.Success ? "OK" : "!!")</span>
+                        <span class="result-name">@result.FileName</span>
+                        @if (result.Success)
+                        {
+                            <span class="result-chunks">@result.ChunksIngested chunks</span>
+                        }
+                        else
+                        {
+                            <span class="result-error">@result.Error</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="doc-error">@errorMessage</div>
+        }
+    </div>
+</div>
+
+<script suppress-error="BL9992">
+    window.docUpload = {
+        dotNetRef: null,
+
+        init: function(ref) {
+            this.dotNetRef = ref;
+            const input = document.getElementById('doc-file-input');
+            input.addEventListener('change', () => this.updateFileList());
+        },
+
+        updateFileList: function() {
+            const input = document.getElementById('doc-file-input');
+            const list = document.getElementById('pending-files-list');
+            const items = document.getElementById('file-list-items');
+            const count = document.getElementById('file-count');
+
+            items.innerHTML = '';
+            if (input.files.length === 0) {
+                list.style.display = 'none';
+                return;
+            }
+
+            list.style.display = 'block';
+            count.textContent = input.files.length;
+
+            for (const file of input.files) {
+                const size = file.size < 1024*1024
+                    ? (file.size/1024).toFixed(1) + ' KB'
+                    : (file.size/(1024*1024)).toFixed(1) + ' MB';
+
+                const div = document.createElement('div');
+                div.className = 'pending-file';
+                div.innerHTML = `<span class="file-name">${file.name}</span><span class="file-size">${size}</span>`;
+                items.appendChild(div);
+            }
+        },
+
+        upload: async function() {
+            const input = document.getElementById('doc-file-input');
+            const btn = document.getElementById('upload-btn');
+
+            if (input.files.length === 0) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Uploading & Processing...';
+
+            if (this.dotNetRef) {
+                await this.dotNetRef.invokeMethodAsync('SetStatus', 'Uploading files...');
+            }
+
+            const formData = new FormData();
+            for (const file of input.files) {
+                formData.append('files', file);
+            }
+
+            try {
+                const response = await fetch('/upload-documents', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(text || `HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                input.value = '';
+                document.getElementById('pending-files-list').style.display = 'none';
+
+                if (this.dotNetRef) {
+                    await this.dotNetRef.invokeMethodAsync('SetUploadResult', JSON.stringify(result));
+                }
+            } catch (e) {
+                if (this.dotNetRef) {
+                    await this.dotNetRef.invokeMethodAsync('SetError', e.message);
+                }
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Upload to Knowledge Base';
+            }
+        }
+    };
+</script>
+
+<style>
+    .doc-denied {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        height: 100vh; background: #0a0a0f; color: #f87171; font-family: system-ui, sans-serif; text-align: center;
+    }
+    .doc-denied p { color: #888; }
+    .back-btn { margin-top: 16px; padding: 10px 20px; background: #667eea; border: none; border-radius: 8px; color: white; cursor: pointer; }
+
+    .doc-layout { display: flex; height: 100vh; background: #0a0a0f; color: #e0e0e0; font-family: system-ui, -apple-system, sans-serif; }
+
+    .doc-sidebar {
+        width: 280px; background: rgba(15, 15, 25, 0.95); border-right: 1px solid rgba(255,255,255,0.06);
+        padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+    }
+    .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+    .brand-icon { color: #667eea; }
+    .brand-text { font-size: 18px; font-weight: 600; }
+    .nav-link-btn {
+        display: flex; align-items: center; gap: 8px; background: rgba(102, 126, 234, 0.1);
+        border: 1px solid rgba(102, 126, 234, 0.2); color: #667eea; padding: 10px 14px;
+        border-radius: 8px; cursor: pointer; font-size: 13px;
+    }
+    .nav-link-btn:hover { background: rgba(102, 126, 234, 0.2); }
+    .sidebar-info { flex: 1; color: #888; font-size: 12px; line-height: 1.6; }
+    .sidebar-info h3 { color: #aaa; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin: 16px 0 6px; }
+    .sidebar-info ul { padding-left: 16px; margin: 0; }
+    .sidebar-info li { margin-bottom: 4px; }
+
+    .doc-main { flex: 1; padding: 32px 48px; overflow-y: auto; }
+    .doc-header h1 { font-size: 24px; margin: 0 0 8px; }
+    .doc-subtitle { color: #888; font-size: 14px; margin: 0 0 32px; }
+
+    .upload-zone {
+        display: flex; flex-direction: column; align-items: center;
+        border: 2px dashed rgba(102, 126, 234, 0.3); border-radius: 12px; padding: 48px;
+        text-align: center; cursor: pointer; transition: all 0.2s; color: #888;
+    }
+    .upload-zone:hover { border-color: rgba(102, 126, 234, 0.6); background: rgba(102, 126, 234, 0.05); }
+    .upload-zone p { margin: 12px 0 4px; font-size: 16px; }
+    .upload-hint { font-size: 12px; color: #555; }
+
+    .pending-files {
+        margin-top: 24px; background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px;
+    }
+    .pending-files h3 { margin: 0 0 12px; font-size: 14px; color: #aaa; }
+    .pending-file {
+        display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+        background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 6px;
+    }
+    .file-name { flex: 1; font-size: 13px; }
+    .file-size { color: #666; font-size: 12px; }
+
+    .upload-btn {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        width: 100%; margin-top: 16px; padding: 12px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none; border-radius: 8px; color: white; font-size: 14px; font-weight: 500; cursor: pointer;
+    }
+    .upload-btn:hover { opacity: 0.9; }
+    .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .spinner {
+        display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+
+    .upload-results {
+        margin-top: 24px; background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px;
+    }
+    .upload-results h3 { margin: 0 0 12px; font-size: 14px; color: #aaa; }
+    .result-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; font-size: 13px;
+    }
+    .result-item.success { background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); }
+    .result-item.error { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); }
+    .result-icon { font-weight: 700; font-size: 12px; }
+    .result-item.success .result-icon { color: #22c55e; }
+    .result-item.error .result-icon { color: #ef4444; }
+    .result-name { flex: 1; }
+    .result-chunks { color: #22c55e; font-size: 12px; }
+    .result-error { color: #f87171; font-size: 12px; }
+    .doc-error {
+        margin-top: 16px; padding: 12px 16px; background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; color: #f87171; font-size: 13px;
+    }
+    @@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+@code {
+    private string? statusMessage;
+    private string? errorMessage;
+    private DocumentUploadResponse? uploadResult;
+    private DotNetObjectReference<Documents>? dotNetRef;
+
+    private void NavigateToChat() => Navigation.NavigateTo("/", forceLoad: true);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RoleService.EnsureLoadedAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("docUpload.init", dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public void SetStatus(string message)
+    {
+        statusMessage = message;
+        errorMessage = null;
+        uploadResult = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void SetUploadResult(string json)
+    {
+        statusMessage = null;
+        errorMessage = null;
+        uploadResult = System.Text.Json.JsonSerializer.Deserialize<DocumentUploadResponse>(json,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void SetError(string message)
+    {
+        statusMessage = null;
+        errorMessage = $"Upload failed: {message}";
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        dotNetRef?.Dispose();
+    }
+}

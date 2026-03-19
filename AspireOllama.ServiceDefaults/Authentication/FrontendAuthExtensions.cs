@@ -57,6 +57,9 @@ public static class FrontendAuthExtensions
         {
             options.ResponseType = "code";
             options.UsePkce = true;
+
+            // Map Azure AD "roles" claim so [Authorize(Roles = "...")] works in Blazor
+            options.TokenValidationParameters.RoleClaimType = "roles";
         });
 
         builder.Services.AddAuthorization();

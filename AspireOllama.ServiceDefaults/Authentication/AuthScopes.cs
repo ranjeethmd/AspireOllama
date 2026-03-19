@@ -11,9 +11,11 @@ public static class AuthRoles
 
     // ── API Service ──
     public const string ApiAccess = "Api.Access";
+    public const string ApiAdmin = "Api.Admin";
     public const string ApiChatRead = "Api.Chat.Read";
     public const string ApiChatWrite = "Api.Chat.Write";
     public const string ApiSessionsManage = "Api.Sessions.Manage";
+    public const string ApiDocumentsManage = "Api.Documents.Manage";
 
     // ── MCP Server ──
     public const string McpAccess = "Mcp.Access";

@@ -2,13 +2,15 @@ using AspireOllama.ApiService.Data;
 using AspireOllama.ApiService.Services.A2A;
 using AspireOllama.ApiService.Services.AI;
 using AspireOllama.ApiService.Services.Document;
+using AspireOllama.ApiService.Services.Embedding;
 using AspireOllama.ApiService.Services.Mcp;
 using AspireOllama.ApiService.Services.Message;
+using AspireOllama.ApiService.Services.Rag;
 using AspireOllama.ApiService.Services.Session;
 using AspireOllama.ApiService.Services.Tools;
 using AspireOllama.Shared;
 using FastEndpoints;
-using Microsoft.EntityFrameworkCore;
+using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -47,14 +49,25 @@ builder.AddOllamaApiClient("llava")
 builder.AddOllamaApiClient("llama")
     .AddKeyedChatClient("tools");   // Tool-calling model for function calling
 
+// Embedding model for RAG document ingestion and query
+builder.AddOllamaApiClient("embedding")
+    .AddEmbeddingGenerator();
+
 // ============================================================
-// Database Configuration (SQLite)
+// Database Configuration (MongoDB + Qdrant)
 // ============================================================
 
-// SQLite database file stored in application content root
-var dbPath = Path.Combine(builder.Environment.ContentRootPath, "chat.db");
-builder.Services.AddDbContext<ChatDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+builder.AddMongoDBClient("aspirechat");
+
+// Register MongoDB collections accessor
+builder.Services.AddSingleton<MongoCollections>(sp =>
+    new MongoCollections(sp.GetRequiredService<IMongoClient>().GetDatabase("aspirechat")));
+
+// Qdrant vector database for RAG
+builder.AddQdrantClient("qdrant");
+
+// Create indexes on startup
+builder.Services.AddHostedService<MongoIndexInitializer>();
 
 // ============================================================
 // Application Services (Single Responsibility)
@@ -71,6 +84,22 @@ builder.Services.AddScoped<IAiChatService, AiChatService>();
 
 // Document text extraction service (PDF, Word, Excel, PowerPoint)
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
+
+// ============================================================
+// RAG Services (Retrieval-Augmented Generation)
+// ============================================================
+
+// Embedding service (uses Ollama nomic-embed-text model)
+builder.Services.AddScoped<IEmbeddingService, OllamaEmbeddingService>();
+
+// Text chunking service (splits documents into overlapping chunks)
+builder.Services.AddSingleton<ITextChunkingService, TextChunkingService>();
+
+// Document ingestion pipeline (extract → chunk → embed → store in MongoDB)
+builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
+
+// RAG retrieval service (embed query → cosine similarity search → return relevant chunks)
+builder.Services.AddScoped<IRagRetrievalService, RagRetrievalService>();
 
 // ============================================================
 // Tool Calling Configuration
@@ -123,39 +152,16 @@ builder.Services.AddFastEndpoints();
 // Problem details for standardized error responses
 builder.Services.AddProblemDetails();
 
-// Increase request body size for file uploads (50MB max)
+// Increase request body size for RAG document uploads (100MB max)
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = 50 * 1024 * 1024;
+    options.Limits.MaxRequestBodySize = 100 * 1024 * 1024;
 });
 
 // OpenAPI/Swagger documentation
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
-
-// ============================================================
-// Database Initialization
-// ============================================================
-
-// Ensure database and tables exist, apply migrations
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
-    db.Database.EnsureCreated();
-
-    // Manual migration: Add FilesJson column for document attachment storage
-    // Required for databases created before document support was added
-    try
-    {
-        db.Database.ExecuteSqlRaw(
-            "ALTER TABLE ChatMessages ADD COLUMN FilesJson TEXT DEFAULT '[]'");
-    }
-    catch (Microsoft.Data.Sqlite.SqliteException)
-    {
-        // Column already exists - this is expected for newer databases
-    }
-}
 
 // ============================================================
 // MCP Client Initialization

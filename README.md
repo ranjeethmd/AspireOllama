@@ -1,6 +1,6 @@
 # AspireOllama
 
-A modern AI chat application built with **.NET Aspire** and **Ollama**, featuring multimodal capabilities, tool calling, MCP (Model Context Protocol) integration, and persistent chat history.
+A modern AI chat application built with **.NET Aspire** and **Ollama**, featuring multimodal capabilities, tool calling, MCP (Model Context Protocol) integration, RAG (Retrieval-Augmented Generation), and persistent chat history.
 
 ## Features
 
@@ -10,12 +10,19 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 - **MCP Integration** - Connect to external MCP servers for extensible tool support
 - **A2A Protocol** - Agent-to-Agent communication with standardized discovery, task management, and peer-to-peer messaging
 - **Multi-Agent System** - Specialized AI agents (Planner, Reviewer, Research, Code) that collaborate on complex tasks
+- **RAG Knowledge Base** - Upload large documents (up to 100MB) to a global vector store; all chat sessions search it automatically
+- **Vector Search (Qdrant)** - Document chunks embedded via nomic-embed-text, stored in Qdrant with dot product similarity
 - **Document Analysis** - Upload and analyze PDF, Word, Excel, PowerPoint, and text files
-- **Persistent Chat History** - SQLite-backed session storage with full conversation history
+- **Persistent Chat History** - MongoDB-backed session storage with full conversation history
 - **Session Management** - Create, switch, and delete chat sessions with visual status indicators
-- **Multi-File Upload** - Support for images and documents (max 10 files, 20MB each)
+- **Multi-File Upload** - Support for images and documents in chat (max 10 files, 20MB each)
+- **Admin Document Upload** - Dedicated `/documents` page for admins to upload large files to the RAG knowledge base (100MB, role-protected)
+- **User Profile & Sign-out** - User avatar with name, email, and sign-out in sidebar across all pages
 - **Local LLM Inference** - Runs entirely on your machine using Ollama with GPU acceleration
 - **Cloud-Native Architecture** - Built on .NET Aspire with automatic service discovery and health checks
+- **Redis Token Cache** - Distributed MSAL token cache replacing in-memory storage for scalability
+- **New Relic Observability** - Traces, metrics, and logs via OpenTelemetry OTLP with per-service naming
+- **Kubernetes Ready** - Full K8s manifests with Kustomize, nginx Ingress, and multi-stage Dockerfile
 - **Open WebUI** - Includes Ollama's Open WebUI for direct model interaction
 
 ## UI Features
@@ -32,28 +39,35 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 
 ```
 AspireOllama/
-├── AspireOllama.AppHost/         # .NET Aspire orchestrator
+├── AspireOllama.AppHost/         # .NET Aspire orchestrator (Redis, Ollama, YARP, New Relic)
 ├── AspireOllama.ApiService/      # Backend API with chat endpoints + MCP client
 ├── AspireOllama.McpServer/       # External MCP server with sample tools
-├── AspireOllama.Web/             # Blazor Server frontend
+├── AspireOllama.Web/             # Blazor Server frontend (Redis token cache)
 ├── AspireOllama.Shared/          # Shared DTOs
-├── AspireOllama.ServiceDefaults/ # Common service configuration
-└── A2A/                          # Agent-to-Agent protocol agents
-    ├── AspireOllama.A2A.Shared/      # Shared A2A models and client
-    ├── AspireOllama.A2A.PlannerAgent/  # Task planning and orchestration
-    ├── AspireOllama.A2A.ReviewerAgent/ # Quality review and validation
-    ├── AspireOllama.A2A.ResearchAgent/ # Knowledge gathering and context
-    └── AspireOllama.A2A.CodeAgent/     # Code generation and execution
+├── AspireOllama.ServiceDefaults/ # Common service config, auth, OpenTelemetry
+├── AspireOllama.Gateway/         # Gateway secrets configuration
+├── A2A/                          # Agent-to-Agent protocol agents
+│   ├── AspireOllama.A2A.Shared/      # Shared A2A models and client
+│   ├── AspireOllama.A2A.PlannerAgent/  # Task planning and orchestration
+│   ├── AspireOllama.A2A.ReviewerAgent/ # Quality review and validation
+│   ├── AspireOllama.A2A.ResearchAgent/ # Knowledge gathering and context
+│   └── AspireOllama.A2A.CodeAgent/     # Code generation and execution
+├── k8s/                          # Kubernetes deployment manifests
+│   ├── base/                     # Kustomize base (all resources)
+│   ├── build-images.sh           # Docker image build script
+│   └── deploy.sh                 # K8s deployment script
+├── infra/terraform/              # Terraform for Azure AD setup
+└── Dockerfile                    # Multi-stage build for all .NET services
 ```
 
 | Project | Description |
 |---------|-------------|
-| `AspireOllama.AppHost` | .NET Aspire orchestrator - manages Ollama, MCP Server, API, A2A Agents, and Web services |
-| `AspireOllama.ApiService` | Backend API with chat endpoints, tool calling, MCP client, and SQLite persistence |
+| `AspireOllama.AppHost` | .NET Aspire orchestrator - manages MongoDB, Qdrant, Redis, Ollama, MCP Server, API, A2A Agents, Web, YARP Gateway, and New Relic OTLP |
+| `AspireOllama.ApiService` | Backend API with chat endpoints, tool calling, MCP client, RAG ingestion/retrieval, and MongoDB persistence |
 | `AspireOllama.McpServer` | HTTP-based MCP server exposing weather, time, and conversion tools |
-| `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI and file upload |
+| `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI, file upload, and Redis-backed token cache |
 | `AspireOllama.Shared` | Shared DTOs for API communication including tool call models |
-| `AspireOllama.ServiceDefaults` | Common service configuration, health checks, and Aspire client extensions |
+| `AspireOllama.ServiceDefaults` | Common service config, auth (OIDC/OBO/JWT), OpenTelemetry with resource attributes, health checks |
 | `A2A/AspireOllama.A2A.Shared` | Shared A2A protocol models, agent client, and server base class |
 | `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and multi-agent workflow orchestration |
 | `A2A/AspireOllama.A2A.ReviewerAgent` | Quality assurance agent for reviewing responses and code |
@@ -70,8 +84,13 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - **llava** - Vision-capable language model (image analysis)
 - **llama3.1** - Tool-calling language model (function invocation)
 - **Model Context Protocol (MCP)** - Extensible tool integration
-- **Blazor Server** - Interactive web UI
-- **Entity Framework Core** - SQLite persistence
+- **Blazor Server** - Interactive web UI (prerender disabled for clean loading)
+- **MongoDB** - Chat session and message persistence (replaced SQLite)
+- **Qdrant** - Vector database for RAG with dot product similarity
+- **nomic-embed-text** - Embedding model for document chunking and query (via Ollama)
+- **Redis** - Distributed MSAL token cache (via Aspire)
+- **Microsoft.Identity.Web** - Azure AD authentication (OIDC, OBO, distributed token cache)
+- **OpenTelemetry** - Traces, metrics, and logs exported to New Relic via OTLP
 - **Microsoft.Extensions.AI** - Unified AI abstractions
 - **FastEndpoints** - Structured API routing
 - **CommunityToolkit.Aspire.OllamaSharp** - Ollama integration for Aspire
@@ -92,7 +111,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 dotnet run --project AspireOllama.AppHost
 ```
 
-The first run will download the llava and llama3.1 models. This may take several minutes depending on your internet connection.
+The first run will download llava, llama3.1, and nomic-embed-text models. This may take several minutes depending on your internet connection.
 
 ### Access Points
 
@@ -185,15 +204,18 @@ Configure built-in tools in `appsettings.json`:
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/chat` | Send a message with optional images/documents |
-| `POST` | `/sessions` | Create a new chat session |
-| `GET` | `/sessions` | List all chat sessions |
-| `GET` | `/sessions/{id}` | Get session with message history |
-| `DELETE` | `/sessions/{id}` | Delete a chat session |
-| `GET` | `/debug/mcp` | Debug MCP connection status |
-| `GET` | `/test-ollama` | Test Ollama connection |
+| Method | Endpoint | Description | Role Required |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/chat` | Send a message with optional images (RAG context injected automatically) | `Api.Chat.Write` |
+| `POST` | `/api/sessions` | Create a new chat session | `Api.Sessions.Manage` |
+| `GET` | `/api/sessions` | List all chat sessions | `Api.Chat.Read` |
+| `GET` | `/api/sessions/{id}` | Get session with message history | `Api.Chat.Read` |
+| `DELETE` | `/api/sessions/{id}` | Delete a chat session | `Api.Sessions.Manage` |
+| `POST` | `/api/documents/upload` | Upload documents to RAG knowledge base | `Api.Admin` or `Api.Documents.Manage` |
+| `GET` | `/api/me` | Get current user's profile and roles from access token | Any API role |
+| `GET` | `/api/agents` | List available A2A agents | `Api.Chat.Read` |
+| `POST` | `/api/agents/call` | Call an A2A agent skill | `Api.Chat.Write` |
+| `POST` | `/api/agents/workflow` | Run a multi-agent workflow | `Api.Chat.Write` |
 
 ## Supported File Formats
 
@@ -212,9 +234,182 @@ Configure built-in tools in `appsettings.json`:
 
 ### Limits
 
-- Maximum 10 files per message
-- Maximum 20MB per file
-- HTTP client timeout: 10 minutes (for large file processing)
+**Chat file attachments:**
+- Maximum 10 files per message, 20MB each
+- Images processed by llava, documents provide inline context
+
+**RAG document uploads (`/documents` page):**
+- Maximum 100MB per file
+- Documents are chunked, embedded (nomic-embed-text), and stored in Qdrant
+- All chat sessions automatically search the RAG knowledge base
+- Requires `Api.Admin` or `Api.Documents.Manage` role
+
+## Redis Token Cache
+
+MSAL token caching uses Redis instead of in-memory storage. This ensures tokens survive restarts and scale across multiple instances.
+
+- **AppHost** deploys Redis via `builder.AddRedis("redis")`
+- **Web Frontend** registers `AddRedisDistributedCache("redis")` and uses `.AddDistributedTokenCaches()` instead of `.AddInMemoryTokenCaches()`
+- Tokens (user + app) are persisted in Redis automatically by Microsoft.Identity.Web
+
+No configuration needed — Aspire wires the connection string automatically.
+
+## RAG (Retrieval-Augmented Generation)
+
+Documents uploaded via the `/documents` page form a **global knowledge base**. All chat sessions automatically search this knowledge base when answering questions.
+
+### Architecture
+
+```
+Admin uploads document via /documents page
+  → multipart/form-data POST to /upload-documents (Web server)
+    → IDownstreamApi (OBO) → POST /api/documents/upload (API service)
+      → Extract text (PDF, Word, Excel, PowerPoint, Text)
+      → Chunk text (512 chars, 64 char overlap, sentence-boundary splitting)
+      → Embed chunks (nomic-embed-text via Ollama)
+      → Store vectors in Qdrant (dot product distance)
+
+User asks a question in any chat session
+  → AiChatService embeds the query
+  → Qdrant dot product search across ALL documents (top 5 chunks)
+  → Relevant chunks injected as [RELEVANT CONTEXT] in the LLM prompt
+  → LLM answers using the retrieved context
+```
+
+### Infrastructure
+
+| Component | Purpose |
+|-----------|---------|
+| **Qdrant** | Vector database storing document chunk embeddings (dot product) |
+| **nomic-embed-text** | Ollama embedding model for chunking and query embedding |
+| **MongoDB** | Chat sessions and messages (not used for RAG) |
+
+### Authorization
+
+- **Upload**: Requires `Api.Admin` or `Api.Documents.Manage` role (checked on the access token by the API)
+- **Search**: All authenticated users — RAG context is injected automatically during chat
+- **UI visibility**: Documents button and page access controlled by `UserRoleService` which calls `GET /api/me` to read roles from the access token
+
+## Observability (New Relic)
+
+All services export traces, metrics, and logs to New Relic via OpenTelemetry OTLP.
+
+### Configuration
+
+In `AspireOllama.AppHost/appsettings.json`:
+
+```json
+{
+  "NewRelic": {
+    "LicenseKey": "",
+    "OtlpEndpoint": "https://otlp.nr-data.net"
+  },
+  "Otel": {
+    "ServiceNamespace": "AspireOllama",
+    "ServiceVersion": "1.0.0",
+    "DeploymentEnvironment": "development"
+  }
+}
+```
+
+Set the license key via user secrets:
+
+```bash
+cd AspireOllama.AppHost
+dotnet user-secrets set "NewRelic:LicenseKey" "YOUR_KEY"
+```
+
+For EU region, set `OtlpEndpoint` to `https://otlp.eu01.nr-data.net`.
+
+### Service Names in New Relic
+
+| Service | OTEL Service Name |
+|---------|-------------------|
+| API Service | `AspireOllama.ApiService` |
+| Web Frontend | `AspireOllama.Web` |
+| MCP Server | `AspireOllama.McpServer` |
+| YARP Gateway | `AspireOllama.Gateway` |
+| Planner Agent | `AspireOllama.A2A.PlannerAgent` |
+| Reviewer Agent | `AspireOllama.A2A.ReviewerAgent` |
+| Research Agent | `AspireOllama.A2A.ResearchAgent` |
+| Code Agent | `AspireOllama.A2A.CodeAgent` |
+
+### Resource Attributes
+
+Each service reports:
+- `service.name` — per-service name (see table above)
+- `service.namespace` — `AspireOllama`
+- `service.version` — `1.0.0`
+- `deployment.environment` — `development` / `production`
+
+If the New Relic license key is empty, OTLP export is skipped — no impact on local dev.
+
+## Kubernetes Deployment
+
+Full K8s manifests are provided in `k8s/base/` using Kustomize.
+
+### Architecture
+
+In K8s, the Aspire YARP gateway is replaced by an **nginx Ingress** with the same routing rules:
+
+| Path | Backend |
+|------|---------|
+| `/api/*` | apiservice |
+| `/mcp/*` | mcpserver |
+| `/a2a/planner/*` | planner-agent |
+| `/a2a/reviewer/*` | reviewer-agent |
+| `/a2a/research/*` | research-agent |
+| `/a2a/code/*` | code-agent |
+| `/*` (default) | webfrontend |
+
+### Prerequisites
+
+- Kubernetes cluster with nginx Ingress controller
+- Container registry (e.g., ACR, Docker Hub)
+- GPU node for Ollama (nvidia.com/gpu resource)
+
+### Deploy
+
+```bash
+# 1. Edit k8s/base/secrets.yaml with real Azure AD and New Relic values
+# 2. Edit k8s/base/ingress.yaml with your domain
+# 3. Build and push Docker images
+./k8s/build-images.sh myregistry.azurecr.io v1.0.0
+
+# 4. Deploy to cluster
+./k8s/deploy.sh myregistry.azurecr.io v1.0.0
+
+# 5. Verify
+kubectl get pods -n aspireollama
+kubectl get ingress -n aspireollama
+```
+
+### K8s Resources
+
+| Resource | Description |
+|----------|-------------|
+| `namespace.yaml` | `aspireollama` namespace |
+| `configmap.yaml` | OTEL config, Azure AD common, service discovery, downstream APIs |
+| `secrets.yaml` | Azure AD credentials (web + backend), New Relic license key |
+| `redis.yaml` | Redis deployment + PVC for token cache |
+| `ollama.yaml` | Ollama deployment + GPU + PVC + model-pull Job |
+| `apiservice.yaml` | Chat API deployment + service |
+| `mcpserver.yaml` | MCP tools server deployment + service |
+| `webfrontend.yaml` | Blazor frontend deployment + service |
+| `planner-agent.yaml` | A2A Planner deployment + service |
+| `reviewer-agent.yaml` | A2A Reviewer deployment + service |
+| `research-agent.yaml` | A2A Research deployment + service |
+| `code-agent.yaml` | A2A Code deployment + service |
+| `ingress.yaml` | nginx Ingress (replaces YARP gateway) |
+
+### Docker Build
+
+A single multi-stage `Dockerfile` at the repo root builds any .NET service:
+
+```bash
+docker build --build-arg PROJECT=AspireOllama.Web -t aspireollama-web .
+docker build --build-arg PROJECT=AspireOllama.ApiService -t aspireollama-apiservice .
+```
 
 ## Development
 
@@ -226,7 +421,9 @@ dotnet build
 
 ### Database
 
-The SQLite database is automatically created at `AspireOllama.ApiService/chat.db` on first run.
+- **MongoDB** stores chat sessions and messages (deployed automatically by Aspire)
+- **Qdrant** stores document chunk vectors for RAG (deployed automatically by Aspire)
+- Both use data volumes for persistence across restarts
 
 ### Project Structure
 
@@ -234,29 +431,44 @@ The SQLite database is automatically created at `AspireOllama.ApiService/chat.db
 AspireOllama.ApiService/
 ├── Program.cs
 ├── Data/
-│   └── ChatDbContext.cs
+│   ├── MongoDocuments.cs         # MongoDB document models (sessions, messages)
+│   ├── MongoCollections.cs       # Typed collection accessor
+│   └── MongoIndexInitializer.cs  # Creates indexes on startup
 ├── Endpoints/
-│   ├── ChatEndpoint.cs
+│   ├── ChatEndpoint.cs           # Chat with RAG context injection
+│   ├── DocumentUploadEndpoint.cs # Upload documents to RAG (admin only)
+│   ├── MeEndpoint.cs             # User profile + roles from access token
 │   ├── CreateSessionEndpoint.cs
 │   ├── GetSessionsEndpoint.cs
 │   ├── GetSessionEndpoint.cs
 │   ├── DeleteSessionEndpoint.cs
+│   ├── AgentsEndpoint.cs
 │   ├── TestOllamaEndpoint.cs
 │   └── McpDebugEndpoint.cs
 └── Services/
     ├── AI/
     │   ├── IAiChatService.cs
-    │   ├── AiChatService.cs
+    │   ├── AiChatService.cs      # Builds context with RAG retrieval
     │   └── AiChatResult.cs
     ├── Session/
     │   ├── ISessionService.cs
-    │   └── SessionService.cs
+    │   └── SessionService.cs     # MongoDB-backed
     ├── Message/
     │   ├── IChatMessageService.cs
-    │   └── ChatMessageService.cs
+    │   └── ChatMessageService.cs # MongoDB-backed
     ├── Document/
     │   ├── IDocumentProcessingService.cs
-    │   └── DocumentProcessingService.cs
+    │   ├── DocumentProcessingService.cs
+    │   ├── ITextChunkingService.cs
+    │   ├── TextChunkingService.cs       # Sliding window chunker
+    │   ├── IDocumentIngestionService.cs
+    │   └── DocumentIngestionService.cs  # Extract → chunk → embed → Qdrant
+    ├── Embedding/
+    │   ├── IEmbeddingService.cs
+    │   └── OllamaEmbeddingService.cs   # nomic-embed-text via Ollama
+    ├── Rag/
+    │   ├── IRagRetrievalService.cs
+    │   └── RagRetrievalService.cs      # Qdrant dot product search
     ├── Tools/
     │   ├── ITool.cs
     │   ├── IToolRegistry.cs
@@ -273,9 +485,16 @@ AspireOllama.McpServer/
 └── Program.cs                    # MCP tools: get_weather, get_time, convert_units
 
 AspireOllama.Web/
-├── Program.cs
+├── Program.cs                    # Includes /upload-documents multipart endpoint
 ├── ChatApiClient.cs
-└── Components/Pages/Chat.razor
+├── UserRoleService.cs            # Caches user roles from access token
+└── Components/
+    ├── Pages/
+    │   ├── Chat.razor            # Main chat UI
+    │   ├── Agents.razor          # A2A agents UI
+    │   └── Documents.razor       # RAG document upload (admin)
+    └── Shared/
+        └── UserProfileMenu.razor # User avatar + sign-out component
 
 AspireOllama.Shared/
 ├── ChatSession.cs
@@ -283,13 +502,16 @@ AspireOllama.Shared/
 ├── ChatHistoryMessage.cs
 ├── ChatMessageRequest.cs
 ├── ChatMessageResponse.cs
+├── DocumentUploadRequest.cs      # RAG upload request/response models
+├── UserInfo.cs                   # User profile + roles DTO
 ├── ImageAttachment.cs
 ├── FileAttachment.cs
 ├── ToolCall.cs
 └── ToolConfiguration.cs
 
 AspireOllama.AppHost/
-└── AppHost.cs                    # Aspire orchestration
+├── AppHost.cs                    # Aspire orchestration (MongoDB, Qdrant, Redis, Ollama, YARP, New Relic)
+└── appsettings.json              # New Relic + OTEL configuration
 ```
 
 ## Troubleshooting

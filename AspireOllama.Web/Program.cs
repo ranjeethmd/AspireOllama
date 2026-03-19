@@ -1,5 +1,6 @@
 using AspireOllama.Web;
 using AspireOllama.Web.Components;
+using Microsoft.Identity.Abstractions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +42,8 @@ builder.Services.AddServerSideBlazor(options =>
     options.ClientTimeoutInterval = TimeSpan.FromMinutes(10);
     // Frequent keepalive to maintain connection
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    // Allow large file uploads for RAG documents (base64 inflates ~33%)
+    options.MaximumReceiveMessageSize = 150 * 1024 * 1024; // 150MB
 });
 
 builder.Services.AddOutputCache();
@@ -50,7 +53,20 @@ builder.Services.AddOutputCache();
 // Gateway secret is injected by AddServiceDefaults() via ConfigureHttpClientDefaults
 // ============================================================
 
+// Extend HTTP client timeout for large file uploads to downstream APIs
+builder.Services.ConfigureHttpClientDefaults(http =>
+{
+    http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMinutes(10));
+});
+
+// Allow large file uploads via multipart/form-data
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 100 * 1024 * 1024; // 100MB
+});
+
 builder.Services.AddScoped<ChatApiClient>();
+builder.Services.AddScoped<UserRoleService>();
 
 var app = builder.Build();
 
@@ -75,6 +91,45 @@ app.UseOutputCache();
 
 // Serve static files (CSS, JS, images)
 app.MapStaticAssets();
+
+// File upload endpoint — handles multipart/form-data directly (bypasses SignalR)
+// Uses IDownstreamApi with HttpContext.User (not AuthenticationStateProvider which is Blazor-only)
+app.MapPost("/upload-documents", async (HttpRequest request, IDownstreamApi downstreamApi) =>
+{
+    if (!request.HasFormContentType)
+        return Results.BadRequest("Expected multipart/form-data");
+
+    var form = await request.ReadFormAsync();
+    var files = new List<AspireOllama.Shared.FileAttachment>();
+
+    foreach (var formFile in form.Files)
+    {
+        using var ms = new MemoryStream();
+        await formFile.CopyToAsync(ms);
+
+        files.Add(new AspireOllama.Shared.FileAttachment
+        {
+            FileName = formFile.FileName,
+            ContentType = formFile.ContentType,
+            Base64Data = Convert.ToBase64String(ms.ToArray()),
+            Type = AspireOllama.Shared.FileType.Unknown
+        });
+    }
+
+    if (files.Count == 0)
+        return Results.BadRequest("No files uploaded");
+
+    var uploadRequest = new AspireOllama.Shared.DocumentUploadRequest { Files = files };
+    var user = request.HttpContext.User;
+
+    var response = await downstreamApi.PostForUserAsync<AspireOllama.Shared.DocumentUploadRequest, AspireOllama.Shared.DocumentUploadResponse>(
+        "ApiService", uploadRequest,
+        options => options.RelativePath = "api/documents/upload",
+        user);
+
+    return Results.Ok(response ?? new AspireOllama.Shared.DocumentUploadResponse());
+}).RequireAuthorization()
+  .DisableAntiforgery();
 
 // Map Blazor components with interactive server rendering
 // RequireAuthorization ensures unauthenticated users are redirected to Azure AD login

@@ -5,6 +5,7 @@
   <Project Path="AspireOllama.ServiceDefaults/AspireOllama.ServiceDefaults.csproj" />
   <Project Path="AspireOllama.Shared/AspireOllama.Shared.csproj" />
   <Project Path="AspireOllama.Tests.UI/AspireOllama.Tests.UI.csproj" />
+  <Project Path="AspireOllama.Gateway/AspireOllama.Gateway.csproj" />
   <Project Path="AspireOllama.Web/AspireOllama.Web.csproj" />
   <Folder Name="/A2A/">
     <Project Path="A2A/AspireOllama.A2A.PlannerAgent/AspireOllama.A2A.PlannerAgent.csproj" />

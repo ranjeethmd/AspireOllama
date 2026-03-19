@@ -1,5 +1,6 @@
 using AspireOllama.ApiService.Services.Document;
 using AspireOllama.ApiService.Services.Mcp;
+using AspireOllama.ApiService.Services.Rag;
 using AspireOllama.ApiService.Services.Tools;
 using AspireOllama.Shared;
 using Microsoft.Extensions.AI;
@@ -18,6 +19,7 @@ public class AiChatService : IAiChatService
     private readonly IChatClient _toolClient;
     private readonly IChatClient _functionInvokingClient;
     private readonly IDocumentProcessingService _docService;
+    private readonly IRagRetrievalService _ragService;
     private readonly IToolRegistry _toolRegistry;
     private readonly IMcpService _mcpService;
     private readonly ImageAnalysisTool _imageAnalysisTool;
@@ -27,22 +29,21 @@ public class AiChatService : IAiChatService
     /// System prompt that guides the AI's behavior.
     /// </summary>
     private const string SystemPrompt = """
-        You are a helpful AI assistant. Respond in plain natural language.
+        You are a helpful AI assistant. Respond ONLY in plain natural language.
 
-        CRITICAL RULES:
-        1. NEVER output JSON in your response. No {"name":...} or any JSON syntax.
-        2. NEVER mention "function calls" or "tool calls" in your response.
-        3. When you see [FILE: ...] content, just read it and answer the user's question naturally.
-        4. For images marked [IMAGES], use the analyze_image tool (the system handles this automatically).
-        5. Respond conversationally like a helpful human assistant would.
-
-        BAD response: {"name": "something", "parameters": {...}}
-        GOOD response: "The contract shows a total of $12,352.50 USD."
+        ABSOLUTE RULES:
+        1. NEVER output JSON, code blocks, or structured data in your response unless the user explicitly asks for code.
+        2. NEVER write {"name":...} or any function call syntax. The system handles tools automatically.
+        3. When you see [RELEVANT CONTEXT from uploaded documents], use that information to answer naturally. Cite the source file when relevant.
+        4. If the context doesn't contain enough information, say so honestly.
+        5. When images are attached, describe what you see or answer questions about them.
+        6. Respond conversationally like a helpful human assistant would.
         """;
 
     public AiChatService(
         [FromKeyedServices("tools")] IChatClient toolClient,
         IDocumentProcessingService docService,
+        IRagRetrievalService ragService,
         IToolRegistry toolRegistry,
         IMcpService mcpService,
         ImageAnalysisTool imageAnalysisTool,
@@ -50,6 +51,7 @@ public class AiChatService : IAiChatService
     {
         _toolClient = toolClient;
         _docService = docService;
+        _ragService = ragService;
         _toolRegistry = toolRegistry;
         _mcpService = mcpService;
         _imageAnalysisTool = imageAnalysisTool;
@@ -72,8 +74,8 @@ public class AiChatService : IAiChatService
         // Build conversation messages from history
         var messages = BuildHistoryMessages(history);
 
-        // Build current user message with attachments
-        var userMessage = BuildUserMessage(request);
+        // Build current user message with RAG context
+        var userMessage = await BuildUserMessageAsync(request, cancellationToken);
         messages.Add(userMessage);
 
         // Always use Llama 3 as the main agent
@@ -96,8 +98,8 @@ public class AiChatService : IAiChatService
         // Build conversation messages from history
         var messages = BuildHistoryMessages(history);
 
-        // Build current user message with attachments
-        var userMessage = BuildUserMessage(request);
+        // Build current user message with RAG context
+        var userMessage = await BuildUserMessageAsync(request, cancellationToken);
         messages.Add(userMessage);
 
         var imageCount = request.Images?.Count ?? 0;
@@ -132,7 +134,7 @@ public class AiChatService : IAiChatService
 
                 return new AiChatResult
                 {
-                    Response = directResponse.Text ?? string.Empty,
+                    Response = SanitizeResponse(directResponse.Text ?? string.Empty),
                     ToolCalls = new List<ToolCall>(),
                     Usage = BuildUsageInfo(directResponse, "llama3", stopwatch.ElapsedMilliseconds, imageCount, documentCount, new List<ToolCall>())
                 };
@@ -237,7 +239,7 @@ public class AiChatService : IAiChatService
 
             return new AiChatResult
             {
-                Response = response.Text ?? string.Empty,
+                Response = SanitizeResponse(response.Text ?? string.Empty),
                 ToolCalls = toolCalls,
                 Usage = BuildUsageInfo(response, "llama3", stopwatch.ElapsedMilliseconds, imageCount, documentCount, toolCalls)
             };
@@ -313,25 +315,7 @@ public class AiChatService : IAiChatService
             var role = msg.Role == "user" ? ChatRole.User : ChatRole.Assistant;
             var content = msg.Content;
 
-            // Re-extract document content for historical messages
-            // This ensures AI has full context even after app restart
-            if (msg.Role == "user" && msg.Files is not null && msg.Files.Count > 0)
-            {
-                var docTexts = new List<string>();
-                foreach (var file in msg.Files)
-                {
-                    var extractedText = _docService.ExtractText(file);
-                    if (!string.IsNullOrWhiteSpace(extractedText))
-                    {
-                        docTexts.Add($"[Content from {file.FileName}]: {extractedText}");
-                    }
-                }
-                if (docTexts.Count > 0)
-                {
-                    content = $"{content}\n\n{string.Join("\n\n", docTexts)}";
-                }
-            }
-
+            // Document content is now in the RAG vector store — no need to re-extract
             messages.Add(new ChatMessage(role, content));
         }
 
@@ -339,11 +323,11 @@ public class AiChatService : IAiChatService
     }
 
     /// <summary>
-    /// Builds the current user message with images and documents.
-    /// Documents: Text is extracted and included with file metadata.
-    /// Images: Info provided so model can call analyze_image tool.
+    /// Builds the current user message with images and RAG-retrieved document context.
+    /// Documents are already ingested into the vector store by ChatEndpoint.
+    /// RAG retrieval finds relevant chunks based on the user's query.
     /// </summary>
-    private ChatMessage BuildUserMessage(ChatMessageRequest request)
+    private async Task<ChatMessage> BuildUserMessageAsync(ChatMessageRequest request, CancellationToken ct)
     {
         var contentParts = new List<AIContent>();
 
@@ -358,43 +342,40 @@ public class AiChatService : IAiChatService
             _logger.LogInformation("Images available for analysis: {Count}", request.Images.Count);
         }
 
-        // Extract document content with file metadata
-        var documentContents = new List<string>();
-        if (request.Files is not null && request.Files.Count > 0)
+        // RAG: Retrieve relevant document chunks via vector similarity search
+        var ragContext = new List<string>();
+        var query = request.Content ?? "Analyze the uploaded documents.";
+        var retrievedChunks = await _ragService.SearchAsync(query, topK: 5, ct: ct);
+        if (retrievedChunks.Count > 0)
         {
-            foreach (var file in request.Files)
+            _logger.LogInformation("RAG retrieved {Count} relevant chunks for query", retrievedChunks.Count);
+            foreach (var chunk in retrievedChunks)
             {
-                var extractedText = _docService.ExtractText(file);
-                if (!string.IsNullOrWhiteSpace(extractedText))
-                {
-                    // Include file metadata so AI knows the source
-                    documentContents.Add($"[FILE: {file.FileName} ({file.Type})]\n{extractedText}\n[END FILE: {file.FileName}]");
-                    _logger.LogInformation("Extracted {Length} chars from {FileName} ({Type})",
-                        extractedText.Length, file.FileName, file.Type);
-                }
-                else
-                {
-                    documentContents.Add($"[FILE: {file.FileName} ({file.Type})]\n(Could not extract content)\n[END FILE: {file.FileName}]");
-                    _logger.LogWarning("Could not extract text from {FileName}", file.FileName);
-                }
+                ragContext.Add($"[From {chunk.FileName}, section {chunk.ChunkIndex}]: {chunk.Text}");
             }
         }
 
         // Compose final text content
-        var textContent = ComposeTextContent(request.Content, imageInfo, documentContents);
+        var textContent = ComposeTextContent(request.Content, imageInfo, ragContext);
         contentParts.Add(new TextContent(textContent));
 
         return new ChatMessage(ChatRole.User, contentParts);
     }
 
     /// <summary>
-    /// Composes the final text content with images info and document content.
+    /// Composes the final text content with images info and RAG context.
     /// </summary>
-    private static string ComposeTextContent(string? userContent, List<string> imageInfo, List<string> documentContents)
+    private static string ComposeTextContent(string? userContent, List<string> imageInfo, List<string> ragContext)
     {
         var parts = new List<string>();
 
-        // Add user message first
+        // Add RAG context first so the model sees it before the question
+        if (ragContext.Count > 0)
+        {
+            parts.Add($"[RELEVANT CONTEXT from uploaded documents]\n{string.Join("\n\n", ragContext)}\n[END CONTEXT]");
+        }
+
+        // Add user message
         if (!string.IsNullOrWhiteSpace(userContent))
         {
             parts.Add(userContent);
@@ -404,12 +385,6 @@ public class AiChatService : IAiChatService
         if (imageInfo.Count > 0)
         {
             parts.Add($"[IMAGES - Use analyze_image tool to view]\n{string.Join("\n", imageInfo)}");
-        }
-
-        // Add extracted document content (already readable)
-        if (documentContents.Count > 0)
-        {
-            parts.Add(string.Join("\n\n", documentContents));
         }
 
         // Default prompt if only files uploaded with no message
@@ -424,6 +399,33 @@ public class AiChatService : IAiChatService
     /// <summary>
     /// Normalizes media type for Ollama compatibility.
     /// </summary>
+    /// <summary>
+    /// Strips hallucinated JSON function calls from the LLM response.
+    /// llama3.1 sometimes outputs {"name": "...", "parameters": {...}} as text
+    /// instead of making a proper tool call.
+    /// </summary>
+    private static string SanitizeResponse(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+            return response;
+
+        // Remove JSON blocks that look like function calls
+        var sanitized = System.Text.RegularExpressions.Regex.Replace(
+            response,
+            @"\{""name""\s*:\s*""[^""]+"".*?""parameters""\s*:\s*\{.*?\}\s*\}",
+            "",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        // Clean up leftover text around the removed JSON
+        sanitized = sanitized.Trim();
+
+        // If the entire response was just a function call JSON, return a helpful message
+        if (string.IsNullOrWhiteSpace(sanitized))
+            return "I processed your request. Could you please rephrase your question?";
+
+        return sanitized;
+    }
+
     private static string NormalizeMediaType(string contentType)
     {
         return contentType switch

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using OllamaSharp;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
 namespace Microsoft.Extensions.Hosting;
@@ -82,6 +83,16 @@ public static class Extensions
         });
 
         builder.Services.AddOpenTelemetry()
+            .ConfigureResource(resource =>
+            {
+                resource.AddService(
+                    serviceName: builder.Environment.ApplicationName,
+                    serviceNamespace: builder.Configuration["Otel:ServiceNamespace"] ?? "AspireOllama",
+                    serviceVersion: builder.Configuration["Otel:ServiceVersion"] ?? "1.0.0");
+                resource.AddAttributes([
+                    new("deployment.environment", builder.Configuration["Otel:DeploymentEnvironment"] ?? builder.Environment.EnvironmentName),
+                ]);
+            })
             .WithMetrics(metrics =>
             {
                 metrics.AddAspNetCoreInstrumentation()

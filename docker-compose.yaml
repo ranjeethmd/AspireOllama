@@ -1,0 +1,309 @@
+# AspireOllama Docker Compose
+# Copy docker-compose.env.example to .env and fill in secrets before running
+# Usage: docker compose up --build
+
+x-newrelic-env: &newrelic-env
+  NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+  CORECLR_ENABLE_PROFILING: "1"
+  CORECLR_PROFILER: "{36032161-FFC0-4B61-B559-F6C5D41BAE5A}"
+  CORECLR_NEWRELIC_HOME: /usr/local/newrelic-dotnet-agent
+  CORECLR_PROFILER_PATH: /usr/local/newrelic-dotnet-agent/libNewRelicProfiler.so
+
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: https://otlp.nr-data.net
+  OTEL_EXPORTER_OTLP_HEADERS: api-key=${NEW_RELIC_LICENSE_KEY}
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_Service_Namespace: AspireOllama
+  OTEL_Service_Version: "1.0.0"
+  OTEL_Deployment_Environment: docker
+
+x-azure-ad-backend: &azure-ad-backend
+  AzureAd__Instance: https://login.microsoftonline.com/
+  AzureAd__TenantId: ${AZUREAD_TENANT_ID}
+  AzureAd__ClientId: ${AZUREAD_BACKEND_CLIENT_ID}
+  AzureAd__ClientSecret: ${AZUREAD_BACKEND_CLIENT_SECRET}
+  AzureAd__Audience: ${AZUREAD_AUDIENCE}
+  Gateway__SharedSecret: ${GATEWAY_SHARED_SECRET}
+
+x-service-discovery: &service-discovery
+  ConnectionStrings__redis: redis:6379
+  ConnectionStrings__ollama: http://ollama:11434
+  ConnectionStrings__mcpserver: http://mcpserver:8080
+  ConnectionStrings__apiservice: http://apiservice:8080
+  ConnectionStrings__gateway: http://gateway:8080
+
+x-a2a-discovery: &a2a-discovery
+  A2A__KnownAgents__planner: http://planner-agent:8080
+  A2A__KnownAgents__reviewer: http://reviewer-agent:8080
+  A2A__KnownAgents__research: http://research-agent:8080
+  A2A__KnownAgents__code: http://code-agent:8080
+
+x-healthcheck: &healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 15s
+
+services:
+  # ============================================================
+  # Infrastructure
+  # ============================================================
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  # Pull models after Ollama is ready
+  ollama-init:
+    image: curlimages/curl:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        curl -X POST http://ollama:11434/api/pull -d '{"name":"llava"}' &&
+        curl -X POST http://ollama:11434/api/pull -d '{"name":"llama3.1"}'
+    networks:
+      - internal
+
+  # ============================================================
+  # YARP Gateway (externally exposed)
+  # ============================================================
+
+  gateway:
+    build:
+      context: .
+      args:
+        PROJECT: AspireOllama.Gateway
+    ports:
+      - "80:8080"
+      - "443:8443"
+    environment:
+      <<: [*newrelic-env, *otel-env]
+      OTEL_SERVICE_NAME: AspireOllama.Gateway
+      NEW_RELIC_APP_NAME: AspireOllama.Gateway
+      ASPNETCORE_ENVIRONMENT: Production
+      # Let's Encrypt - set domain and email to enable
+      LettuceEncrypt__AcceptTermsOfService: "true"
+      LettuceEncrypt__DomainNames__0: ${LETSENCRYPT_DOMAIN:-}
+      LettuceEncrypt__EmailAddress: ${LETSENCRYPT_EMAIL:-}
+    volumes:
+      - letsencrypt-certs:/root/.aspnet/DataProtection-Keys
+    depends_on:
+      webfrontend:
+        condition: service_healthy
+      apiservice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+      - external
+
+  # ============================================================
+  # Web Frontend (externally exposed via gateway)
+  # ============================================================
+
+  webfrontend:
+    build:
+      context: .
+      args:
+        PROJECT: AspireOllama.Web
+    environment:
+      <<: [*newrelic-env, *otel-env, *service-discovery]
+      OTEL_SERVICE_NAME: AspireOllama.Web
+      NEW_RELIC_APP_NAME: AspireOllama.Web
+      ASPNETCORE_ENVIRONMENT: Production
+      AzureAd__Instance: https://login.microsoftonline.com/
+      AzureAd__TenantId: ${AZUREAD_TENANT_ID}
+      AzureAd__ClientId: ${AZUREAD_WEB_CLIENT_ID}
+      AzureAd__ClientSecret: ${AZUREAD_WEB_CLIENT_SECRET}
+      AzureAd__Audience: ${AZUREAD_AUDIENCE}
+      AzureAd__CallbackPath: /signin-oidc
+      AzureAd__SignedOutCallbackPath: /signout-callback-oidc
+      Gateway__SharedSecret: ${GATEWAY_SHARED_SECRET}
+      DownstreamApis__ApiService__BaseUrl: http://gateway
+      DownstreamApis__McpServer__BaseUrl: http://gateway
+      DownstreamApis__A2AAgents__BaseUrl: http://gateway
+      DownstreamApis__ApiService__Scopes__0: ${AZUREAD_AUDIENCE}/.default
+      DownstreamApis__McpServer__Scopes__0: ${AZUREAD_AUDIENCE}/.default
+      DownstreamApis__A2AAgents__Scopes__0: ${AZUREAD_AUDIENCE}/.default
+    depends_on:
+      redis:
+        condition: service_healthy
+      apiservice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  # ============================================================
+  # API Service (internal only)
+  # ============================================================
+
+  apiservice:
+    build:
+      context: .
+      args:
+        PROJECT: AspireOllama.ApiService
+    environment:
+      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      OTEL_SERVICE_NAME: AspireOllama.ApiService
+      NEW_RELIC_APP_NAME: AspireOllama.ApiService
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+      mcpserver:
+        condition: service_healthy
+      planner-agent:
+        condition: service_healthy
+      reviewer-agent:
+        condition: service_healthy
+      research-agent:
+        condition: service_healthy
+      code-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  # ============================================================
+  # MCP Server (internal only)
+  # ============================================================
+
+  mcpserver:
+    build:
+      context: .
+      args:
+        PROJECT: AspireOllama.McpServer
+    environment:
+      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery]
+      OTEL_SERVICE_NAME: AspireOllama.McpServer
+      NEW_RELIC_APP_NAME: AspireOllama.McpServer
+      ASPNETCORE_ENVIRONMENT: Production
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  # ============================================================
+  # A2A Agents (internal only)
+  # ============================================================
+
+  planner-agent:
+    build:
+      context: .
+      args:
+        PROJECT: A2A/AspireOllama.A2A.PlannerAgent
+    environment:
+      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      OTEL_SERVICE_NAME: AspireOllama.A2A.PlannerAgent
+      NEW_RELIC_APP_NAME: AspireOllama.A2A.PlannerAgent
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  reviewer-agent:
+    build:
+      context: .
+      args:
+        PROJECT: A2A/AspireOllama.A2A.ReviewerAgent
+    environment:
+      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      OTEL_SERVICE_NAME: AspireOllama.A2A.ReviewerAgent
+      NEW_RELIC_APP_NAME: AspireOllama.A2A.ReviewerAgent
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  research-agent:
+    build:
+      context: .
+      args:
+        PROJECT: A2A/AspireOllama.A2A.ResearchAgent
+    environment:
+      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      OTEL_SERVICE_NAME: AspireOllama.A2A.ResearchAgent
+      NEW_RELIC_APP_NAME: AspireOllama.A2A.ResearchAgent
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+  code-agent:
+    build:
+      context: .
+      args:
+        PROJECT: A2A/AspireOllama.A2A.CodeAgent
+    environment:
+      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      OTEL_SERVICE_NAME: AspireOllama.A2A.CodeAgent
+      NEW_RELIC_APP_NAME: AspireOllama.A2A.CodeAgent
+      ASPNETCORE_ENVIRONMENT: Production
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      <<: *healthcheck
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+  external:
+    driver: bridge
+
+volumes:
+  redis-data:
+  ollama-data:
+  letsencrypt-certs:

@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "AspireOllama.Gateway": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:52112;http://localhost:52113"
+    }
+  }
+}

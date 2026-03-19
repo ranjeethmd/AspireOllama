@@ -35,7 +35,8 @@
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(dotnet add:*)",
-      "Bash(dotnet add package:*)"
+      "Bash(dotnet add package:*)",
+      "Bash(terraform validate:*)"
     ]
   }
 }

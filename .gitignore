@@ -368,3 +368,6 @@ FodyWeavers.xsd
 
 # Terraform-generated Azure AD secrets (never commit)
 **/appsettings.Secrets.json
+
+# Docker compose environment (contains secrets)
+.env

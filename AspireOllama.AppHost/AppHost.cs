@@ -1,11 +1,38 @@
+using Microsoft.Extensions.Configuration;
 using Scalar.Aspire;
 
 var builder = DistributedApplication.CreateBuilder(args);
+
+// Load secrets (gitignored)
+builder.Configuration.AddJsonFile("appsettings.Secrets.json", optional: true, reloadOnChange: false);
+
+// ============================================================
+// New Relic Observability (via OpenTelemetry OTLP)
+// Requires NEW_RELIC_LICENSE_KEY in user secrets or environment
+// ============================================================
+var newRelicLicenseKey = builder.Configuration["NewRelic:LicenseKey"] ?? "";
+var newRelicOtlpEndpoint = builder.Configuration["NewRelic:OtlpEndpoint"] ?? "https://otlp.nr-data.net";
+var otelServiceNamespace = builder.Configuration["Otel:ServiceNamespace"] ?? "AspireOllama";
+var otelServiceVersion = builder.Configuration["Otel:ServiceVersion"] ?? "1.0.0";
+var otelDeploymentEnv = builder.Configuration["Otel:DeploymentEnvironment"] ?? "development";
 
 // ============================================================
 // Redis (Distributed Token Cache)
 // ============================================================
 var redis = builder.AddRedis("redis")
+    .WithDataVolume();
+
+// ============================================================
+// MongoDB (Chat persistence)
+// ============================================================
+var mongodb = builder.AddMongoDB("mongodb")
+    .WithDataVolume();
+var chatDb = mongodb.AddDatabase("aspirechat");
+
+// ============================================================
+// Qdrant (Vector database for RAG)
+// ============================================================
+var qdrant = builder.AddQdrant("qdrant")
     .WithDataVolume();
 
 // ============================================================
@@ -17,6 +44,7 @@ var ollama = builder.AddOllama("ollama")
     .WithOpenWebUI();
 var llava = ollama.AddModel("llava", "llava");       // Vision model (image understanding)
 var llama = ollama.AddModel("llama", "llama3.1");    // Tool-calling model (function calling)
+var embedding = ollama.AddModel("embedding", "nomic-embed-text"); // Embedding model (RAG)
 
 // ============================================================
 // MCP Server (HTTP-based tools server)
@@ -72,15 +100,21 @@ var apiService = builder.AddProject<Projects.AspireOllama_ApiService>("apiservic
     .WithHttpHealthCheck("/health");
 
 apiService
+    .WithReference(chatDb)
+    .WithReference(qdrant)
     .WithReference(llava)
     .WithReference(llama)
+    .WithReference(embedding)
     .WithReference(mcpServer)
     .WithReference(plannerAgent)
     .WithReference(reviewerAgent)
     .WithReference(researchAgent)
     .WithReference(codeAgent)
+    .WaitFor(chatDb)
+    .WaitFor(qdrant)
     .WaitFor(llava)
     .WaitFor(llama)
+    .WaitFor(embedding)
     .WaitFor(mcpServer)
     .WaitFor(plannerAgent)
     .WaitFor(reviewerAgent)
@@ -142,23 +176,54 @@ researchAgent.WithReference(ollama).WaitFor(llama);
 codeAgent.WithReference(ollama).WaitFor(llama);
 
 // ============================================================
-// YARP Gateway (Aspire built-in) - Single entry point
-// Routes all external traffic to internal services
+// YARP Gateway - Single entry point
+// Routes configured in AspireOllama.Gateway/appsettings.json
+// Supports Let's Encrypt TLS via LettuceEncrypt
 // ============================================================
-var gateway = builder.AddYarp("gateway")
-    .WithConfiguration(yarp =>
-    {
-        yarp.AddRoute("/api/{**catch-all}", apiService);
-        yarp.AddRoute("/mcp/{**catch-all}", mcpServer);
-        yarp.AddRoute("/a2a/planner/{**catch-all}", plannerAgent);
-        yarp.AddRoute("/a2a/reviewer/{**catch-all}", reviewerAgent);
-        yarp.AddRoute("/a2a/research/{**catch-all}", researchAgent);
-        yarp.AddRoute("/a2a/code/{**catch-all}", codeAgent);
-        yarp.AddRoute("/scalar/{**catch-all}", scalar);
-        yarp.AddRoute("/{**catch-all}", webFrontend);
-    });
+var gateway = builder.AddProject<Projects.AspireOllama_Gateway>("gateway")
+    .WithReference(apiService)
+    .WithReference(mcpServer)
+    .WithReference(plannerAgent)
+    .WithReference(reviewerAgent)
+    .WithReference(researchAgent)
+    .WithReference(codeAgent)
+    .WithReference(webFrontend)
+    .WithReference(scalar)
+    .WithHttpHealthCheck("/health")
+    .WaitFor(webFrontend)
+    .WaitFor(apiService);
 
 // Web frontend calls downstream services through the gateway
 webFrontend.WithReference(gateway);
+
+// ============================================================
+// New Relic: Configure OTLP export for all services
+// ============================================================
+if (!string.IsNullOrWhiteSpace(newRelicLicenseKey))
+{
+    var services = new (IResourceBuilder<ProjectResource> resource, string name)[]
+    {
+        (gateway,        "AspireOllama.Gateway"),
+        (apiService,     "AspireOllama.ApiService"),
+        (webFrontend,    "AspireOllama.Web"),
+        (mcpServer,      "AspireOllama.McpServer"),
+        (plannerAgent,   "AspireOllama.A2A.PlannerAgent"),
+        (reviewerAgent,  "AspireOllama.A2A.ReviewerAgent"),
+        (researchAgent,  "AspireOllama.A2A.ResearchAgent"),
+        (codeAgent,      "AspireOllama.A2A.CodeAgent"),
+    };
+
+    foreach (var (resource, name) in services)
+    {
+        resource
+            .WithEnvironment("OTEL_SERVICE_NAME", name)
+            .WithEnvironment("OTEL_Service_Namespace", otelServiceNamespace)
+            .WithEnvironment("OTEL_Service_Version", otelServiceVersion)
+            .WithEnvironment("OTEL_Deployment_Environment", otelDeploymentEnv)
+            .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", newRelicOtlpEndpoint)
+            .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", $"api-key={newRelicLicenseKey}")
+            .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
+    }
+}
 
 builder.Build().Run();
