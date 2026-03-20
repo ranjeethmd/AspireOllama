@@ -430,7 +430,8 @@ For local development without full identity provider setup:
 - [x] RAG as a tool — `search_knowledge_base` with relevance scores and `top_k` parameter
 - [x] Image analysis as a tool — `analyze_image` retrieves from session history
 - [x] Calculator tool — built-in math evaluation
-- [x] Workflow UI — hub diagram, expandable blocks, preset buttons, Call Summary and Final Result sections
+- [x] Workflow UI — hub diagram, expandable blocks, preset buttons, Call Summary, Final Result with markdown rendering
+- [x] Web search tool — SerpAPI integration for real-time Google search (key in appsettings.Secrets.json)
 - [ ] Set up audit logging
 - [ ] Configure rate limiting
 - [ ] Test OBO flow end-to-end

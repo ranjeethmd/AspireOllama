@@ -27,7 +27,7 @@ The app is locked by running processes — stop the app before rebuilding if you
 
 - **Secrets in `appsettings.Secrets.json`** (gitignored). Never put keys in `appsettings.json`.
 - **All timeouts: 15 minutes** across gateway, resilience handler, HTTP clients. Coordinator subtask: 5 min. Max plan steps: 5.
-- **No retries on AI calls** (`MaxRetryAttempts = 0`). AI requests are expensive and non-idempotent.
+- **Minimal retries** (`MaxRetryAttempts = 1`). AI requests are expensive. Minimum allowed by resilience handler is 1.
 - **Prerender disabled** on Blazor pages (`prerender: false`). Cross-page navigation uses `forceLoad: true`.
 - **Heartbeat logging suppressed** in ServiceDefaults. Only warnings logged for health checks.
 - **Terraform** in `infra/terraform/` manages Azure AD app registrations, roles, and secrets generation.
@@ -143,6 +143,40 @@ public static readonly Dictionary<string, string> McpToolRoles = new()
 - Connects at startup via `McpService.InitializeAsync()`
 - Gateway routes `/mcp/*` to the MCP server
 
+## Web Search Tool
+
+Uses SerpAPI (Google results). Config in `appsettings.json`:
+```json
+{
+  "Tools": {
+    "EnableWebSearch": true,
+    "WebSearch": { "SerpApiKey": "" }
+  }
+}
+```
+Put the actual key in `appsettings.Secrets.json`. Free tier: 100 searches/month at [serpapi.com](https://serpapi.com/).
+
+## Workflow UI
+
+The Agents page (`/agents`) has a multi-agent workflow tab:
+- **Preset buttons**: 4 one-click workflow templates (Full Stack Auth, REST API, Security Audit, Refactoring)
+- **Hub diagram**: Coordinator plan → Agents box → Coordinator aggregate, with expandable [+] blocks
+- **Call Summary**: collapsible bar with per-agent stats
+- **Final Result**: collapsible, rendered as **markdown** (Markdig), with "Show all" / "Show less" toggle (300px compact ↔ full height)
+- Code blocks in final result get dark background, monospace font, proper formatting
+
+## `AddTextArtifact` Parameter Order
+
+The base class `A2AServerBase.AddTextArtifact` signature is `(task, text, name)` — text first, name second. This has caused bugs before. Always verify parameter order when calling it.
+
+## System Prompt
+
+`AiChatService.SystemPrompt` is a `static string` property (not `const`) because it includes `DateTime.UtcNow` for today's date. The prompt instructs the LLM to:
+- Call `web_search` for current events (LLM has knowledge cutoff)
+- NOT search RAG when images or documents are uploaded inline
+- Pass `session_id` to every tool call
+- Only use RAG results with relevance > 0.6
+
 ## Gotchas
 
 - **Aspire AppHost project references** are for orchestration, not compile dependencies. Use `IsAspireProjectResource="false"` for library references (e.g., Shared).
@@ -150,4 +184,8 @@ public static readonly Dictionary<string, string> McpToolRoles = new()
 - **Blazor Server + prerender**: causes double-render. All pages use `prerender: false`.
 - **Large file upload**: goes through `/upload-documents` minimal API endpoint (not SignalR). Uses `IDownstreamApi` with `HttpContext.User`, not `AuthenticationStateProvider`.
 - **Gateway body size**: 100MB for document uploads. All clusters have 15-min `ActivityTimeout`.
-- **Coordinator workflow**: max 5 plan steps, max 6 loop iterations, 5-min per subtask timeout. No conflict resolution re-runs.
+- **Coordinator workflow**: max 5 plan steps, max 6 loop iterations, 5-min per subtask timeout. No conflict resolution re-runs. Reviewer feedback goes to aggregation instead.
+- **`AddTextArtifact(task, text, name)`**: text is second param, name is third. Easy to swap — verify order.
+- **Resilience handler `MaxRetryAttempts`**: minimum is 1, not 0. Setting 0 throws `OptionsValidationException`.
+- **SerpAPI for web search** (not Google Custom Search which requires billing). Key in `appsettings.Secrets.json`.
+- **Markdig** renders Final Result as HTML. Uses default pipeline (no `UseAdvancedExtensions` — removed in Markdig 1.1.1).

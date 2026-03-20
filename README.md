@@ -6,7 +6,8 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 
 - **Modern Agentic UI** - Dark-themed interface with bot avatars, animated thinking indicators, and smooth transitions
 - **Dual-Model AI** - Qwen3 (32B) for text chat + tool calling, Qwen2.5-VL (32B) for vision — unified persona
-- **Smart Tool Routing** - Qwen3 decides when to search documents (RAG) or analyze images (vision) via tool calling
+- **Smart Tool Routing** - Qwen3 decides when to search documents (RAG), analyze images (vision), calculate, or search the web via tool calling
+- **Web Search** - SerpAPI integration for real-time Google search results when the LLM needs current information
 - **Image Analysis with Follow-ups** - Upload images and ask follow-up questions; the system retrieves images from session history
 - **MCP Integration** - Connect to external MCP servers for extensible tool support
 - **A2A Protocol** - Agent-to-Agent communication with standardized discovery, task management, and peer-to-peer messaging
@@ -26,6 +27,28 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 - **New Relic Observability** - Traces, metrics, and logs via OpenTelemetry OTLP with per-service naming
 - **Kubernetes Ready** - Full K8s manifests with Kustomize, nginx Ingress, and multi-stage Dockerfile
 - **Open WebUI** - Includes Ollama's Open WebUI for direct model interaction
+
+## Screenshots
+
+### Chat Interface — Web Search & Tool Calling
+![Chat UI](images/localhost_52112_chat_ca6eb5b4-3604-4e03-b0d9-da64f09cce18.png)
+*AI assistant with web search results, session history sidebar, user profile, and dark theme*
+
+### A2A Agents — Skills & Workflow
+![Agents UI](images/localhost_52112_agents.png)
+*Agent browser showing Coordinator, Planner, Reviewer, Research, and Code agents with their skills*
+
+### RAG Document Upload
+![Documents UI](images/localhost_52112_documents.png)
+*Admin document upload page for the RAG knowledge base (100MB max, role-protected)*
+
+### Aspire Dashboard — Service Orchestration
+![Aspire Dashboard](images/localhost_17098_.png)
+*All services running: MongoDB, Qdrant, Redis, Ollama, Gateway, API, Web, MCP, and 5 A2A agents*
+
+### New Relic — Observability
+![New Relic](images/one.newrelic.com_nr1-core_open-instrumentation-explorer_summary_NzM4MDY2NnxFWFR8U0VSVklDRXw1MTIzMjU4NDAxODE1OTQ4MTAx_account=7380666&duration=1800000&state=8509f2eb-60d4-894f-28f0-72affde61655.png)
+*OpenTelemetry traces, metrics, and Apdex score for AspireOllama.ApiService in New Relic*
 
 ## UI Features
 
@@ -100,6 +123,8 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - **CommunityToolkit.Aspire.OllamaSharp** - Ollama integration for Aspire
 - **DocumentFormat.OpenXml** - Word, Excel, PowerPoint processing
 - **PdfPig** - PDF text extraction
+- **Markdig** - Markdown to HTML rendering (workflow Final Result)
+- **SerpAPI** - Google web search integration (100 free searches/month)
 
 ## Getting Started
 
@@ -308,14 +333,18 @@ The system uses two LLMs behind a single unified persona — the user sees one A
 | Image upload ("describe this") | Qwen3 → `analyze_image` tool → Qwen2.5-VL | Qwen3 delegates to vision model |
 | Follow-up about image ("what color is the logo?") | Qwen3 → `analyze_image` tool → Qwen2.5-VL | Tool retrieves image from MongoDB session history |
 | Document upload via chat (PDF/Word) | Qwen3 (text extracted inline) | No RAG search — file content injected directly |
+| Current events, news, "search the web" | Qwen3 → `web_search` tool | SerpAPI → Google results |
+| Math / calculations | Qwen3 → `calculator` tool | DataTable.Compute evaluation |
 | General chat / greetings | Qwen3 (no tools) | Direct response |
 
 ### Tools Registered on Qwen3
 
 | Tool | Parameters | When Qwen3 calls it |
 |------|-----------|---------------------|
-| `search_knowledge_base` | `session_id`, `query`, `top_k` | User asks about uploaded documents. Returns results with relevance scores (only >0.5 threshold). |
-| `analyze_image` | `session_id`, `instruction` | User uploads images or asks follow-up questions about images. Retrieves from current request or session history. |
+| `calculator` | `session_id`, `expression` | Math and arithmetic |
+| `search_knowledge_base` | `session_id`, `query`, `top_k` | Uploaded document questions. Returns results with relevance scores (>0.5 threshold). |
+| `analyze_image` | `session_id`, `instruction` | Image uploads and follow-up questions. Retrieves from request or session history. |
+| `web_search` | `session_id`, `query`, `max_results` | Current events, news, anything after LLM knowledge cutoff. Uses SerpAPI (Google). |
 
 ### Model Configuration
 
@@ -372,7 +401,8 @@ The Agents page (`Agents.razor`) provides a visual workflow experience:
 - **Hub diagram** showing the flow: Coordinator plan --> Agents box --> Coordinator aggregate
 - **Expandable blocks** for each workflow phase (assess, plan, execute, review, aggregate)
 - **Preset buttons** for common multi-agent tasks
-- **Call Summary** and **Final Result** displayed as expandable sections
+- **Call Summary** displayed as expandable section with per-agent stats
+- **Final Result** rendered as formatted markdown (headings, code blocks, lists) with "Show all" / "Show less" toggle
 - Agent skill counts shown per agent in the UI
 
 ## Observability (New Relic)
