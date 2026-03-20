@@ -56,16 +56,15 @@ public static class Extensions
             // Turn on resilience by default with extended timeouts for AI models
             http.AddStandardResilienceHandler(options =>
             {
-                // Extended timeouts for AI processing (models can be slow)
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(10);
-                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(5);
+                // Extended timeouts for multi-agent workflows with large models
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(15);
+                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(15);
 
-                // Minimal retries - AI requests are expensive
+                // Minimal retries — AI requests are expensive
                 options.Retry.MaxRetryAttempts = 1;
-                options.Retry.Delay = TimeSpan.FromSeconds(1);
 
                 // Circuit breaker: sampling duration must be >= 2x attempt timeout
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(12);
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(32);
             });
 
             // Turn on service discovery by default

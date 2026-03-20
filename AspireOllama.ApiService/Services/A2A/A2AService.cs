@@ -277,6 +277,17 @@ public class A2AService(
                 }
             }
 
+            // Fallback chain: final_response artifact → last coordinator interaction → task history → status message
+            if (string.IsNullOrWhiteSpace(finalResult) && interactions.Count > 0)
+            {
+                var lastCoord = interactions.LastOrDefault(i => i.AgentName == "coordinator");
+                finalResult = lastCoord?.Result?.ToString();
+            }
+            if (string.IsNullOrWhiteSpace(finalResult) && result?.Task?.History?.Count > 0)
+            {
+                var lastAgent = result.Task.History.LastOrDefault(h => h.Role == "agent");
+                finalResult = lastAgent?.Parts?.FirstOrDefault()?.Text;
+            }
             finalResult ??= result?.Task?.Status?.Message ?? "Workflow completed";
 
             return new AgentWorkflowResponse

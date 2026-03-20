@@ -56,7 +56,7 @@ builder.Services.AddOutputCache();
 // Extend HTTP client timeout for large file uploads to downstream APIs
 builder.Services.ConfigureHttpClientDefaults(http =>
 {
-    http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMinutes(10));
+    http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMinutes(15));
 });
 
 // Allow large file uploads via multipart/form-data

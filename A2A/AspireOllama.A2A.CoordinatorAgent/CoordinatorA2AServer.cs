@@ -16,8 +16,10 @@ public class CoordinatorA2AServer(
     IA2AAgentClient agentClient,
     ILogger<CoordinatorA2AServer> logger) : A2AServerBase(logger, agentClient)
 {
-    private const int MaxRetries = 2;
-    private const int SubtaskTimeoutSeconds = 600; // 10 minutes — large models are slow for code generation
+    private const int MaxRetries = 1;
+    private const int SubtaskTimeoutSeconds = 300; // 5 min per subtask
+    private const int MaxPlanSteps = 5;            // Cap LLM plan to 5 steps
+    private const int MaxLoopIterations = 6;       // Safety: max loop cycles
     private static readonly string[] AvailableAgents = ["planner", "reviewer", "research", "code"];
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -121,7 +123,12 @@ Task: {userRequest}";
             planSw.Stop();
 
             var steps = DeserializePlan(plan);
-            // Assign step numbers by array position, clamp deps to earlier steps
+            // Cap plan size, assign step numbers, clamp deps
+            if (steps.Count > MaxPlanSteps)
+            {
+                logger.LogWarning("Plan has {Count} steps, capping to {Max}", steps.Count, MaxPlanSteps);
+                steps = steps.Take(MaxPlanSteps).ToList();
+            }
             for (int i = 0; i < steps.Count; i++)
             {
                 steps[i].Step = i + 1;
@@ -143,14 +150,15 @@ Task: {userRequest}";
             trace.Add(new WorkflowStep(++stepCounter, "coordinator", "plan",
                 "completed", planSw.ElapsedMilliseconds,
                 $"Created plan with {steps.Count} steps: {string.Join(" → ", steps.Select(s => $"{s.Agent}/{s.Action}"))}"));
-            AddTextArtifact(task, "execution_plan", JsonSerializer.Serialize(steps, JsonOpts));
+            AddTextArtifact(task, JsonSerializer.Serialize(steps, JsonOpts), "execution_plan");
 
             // ── Execute steps respecting dependencies ──
             var completed = new HashSet<int>();
             var stepResults = new Dictionary<int, string>();
             var totalSteps = steps.Count;
 
-            while (completed.Count < steps.Count)
+            var loopCount = 0;
+            while (completed.Count < steps.Count && loopCount++ < MaxLoopIterations)
             {
                 // Find steps whose dependencies are all completed
                 var ready = steps
@@ -174,7 +182,7 @@ Task: {userRequest}";
                         context[stuck.Agent] = resultText;
 
                         trace.Add(new WorkflowStep(++stepCounter, stuck.Agent, stuck.Action, "completed (forced)", ms, resultText));
-                        AddTextArtifact(task, $"step{stuck.Step}_{stuck.Agent}_{stuck.Action}", resultText);
+                        AddTextArtifact(task, resultText, $"step{stuck.Step}_{stuck.Agent}_{stuck.Action}");
                     }
                     break;
                 }
@@ -220,64 +228,14 @@ Task: {userRequest}";
                     context[step.Agent] = resultText;
 
                     trace.Add(new WorkflowStep(++stepCounter, step.Agent, step.Action, "completed", ms, resultText, step.DependsOn));
-                    AddTextArtifact(task, $"step{step.Step}_{step.Agent}_{step.Action}", resultText);
+                    AddTextArtifact(task, resultText, $"step{step.Step}_{step.Agent}_{step.Action}");
 
                     logger.LogInformation("Step {Step} ({Agent}/{Action}) completed in {Time}ms",
                         step.Step, step.Agent, step.Action, ms);
                 }
             }
 
-            // ── Conflict resolution ──
-            // Check if any reviewer step flagged conflicts
-            var reviewSteps = trace.Where(t => t.Agent == "reviewer").ToList();
-            if (reviewSteps.Count > 0)
-            {
-                var hasConflicts = reviewSteps.Any(r =>
-                {
-                    var lower = r.Result.ToLowerInvariant();
-                    return lower.Contains("conflict") || lower.Contains("inconsisten")
-                        || lower.Contains("contradict") || lower.Contains("issue")
-                        || lower.Contains("vulnerability") || lower.Contains("incorrect");
-                });
-
-                if (hasConflicts)
-                {
-                    UpdateTaskStatus(task, TaskState.Working, "Resolving conflicts...", 85);
-                    logger.LogInformation("Conflicts detected, asking LLM to create resolution steps");
-
-                    var reviewFeedback = string.Join("\n", reviewSteps.Select(r => r.Result));
-                    var agentOutputs = string.Join("\n\n", trace
-                        .Where(t => t.Agent != "coordinator" && t.Agent != "reviewer")
-                        .Select(t => $"[{t.Agent}/{t.Action}]: {t.Result}"));
-
-                    var resolutionPlan = await AskLlm($@"A reviewer found issues in the multi-agent workflow results.
-
-Reviewer feedback:
-{reviewFeedback}
-
-Agent outputs:
-{agentOutputs}
-
-Create a JSON array of resolution steps. Each step re-runs an agent with corrective instructions.
-Use the same format: [{{""agent"":""..."",""action"":""..."",""instruction"":""..."",""dependsOn"":[]}}]
-Only include steps that need fixing. Return ONLY the JSON array.
-
-Task: {userRequest}", ct);
-
-                    var resolutionSteps = DeserializePlan(resolutionPlan);
-                    if (resolutionSteps.Count > 0)
-                    {
-                        logger.LogInformation("Executing {Count} resolution steps", resolutionSteps.Count);
-                        foreach (var resStep in resolutionSteps)
-                        {
-                            var tracked = await CallAgentTracked(resStep.Agent, resStep.Instruction, ct);
-                            trace.Add(new WorkflowStep(++stepCounter, resStep.Agent, $"{resStep.Action}_resolved", "completed", tracked.elapsedMs, tracked.result));
-                            AddTextArtifact(task, $"resolution_{resStep.Agent}_{resStep.Action}", tracked.result);
-                            context[resStep.Agent] = tracked.result;
-                        }
-                    }
-                }
-            }
+            // Conflict resolution removed — reviewer feedback is included in aggregation.
 
             // ── Final aggregation ──
             UpdateTaskStatus(task, TaskState.Working, "Aggregating results...", 92);
@@ -305,8 +263,8 @@ Task: {userRequest}", ct);
             totalSw.Stop();
 
             // Store trace and final response
-            AddTextArtifact(task, "workflow_trace", JsonSerializer.Serialize(trace, JsonOpts));
-            AddTextArtifact(task, "final_response", aggregated);
+            AddTextArtifact(task, JsonSerializer.Serialize(trace, JsonOpts), "workflow_trace");
+            AddTextArtifact(task, aggregated, "final_response");
             AddResponseToHistory(task, aggregated);
             UpdateTaskStatus(task, TaskState.Completed,
                 $"Completed: {trace.Count} steps, {trace.Select(t => t.Agent).Distinct().Count()} agents, {totalSw.ElapsedMilliseconds}ms", 100);
@@ -315,7 +273,7 @@ Task: {userRequest}", ct);
         {
             totalSw.Stop();
             trace.Add(new WorkflowStep(++stepCounter, "coordinator", "error", "failed", totalSw.ElapsedMilliseconds, ex.Message));
-            AddTextArtifact(task, "workflow_trace", JsonSerializer.Serialize(trace, JsonOpts));
+            AddTextArtifact(task, JsonSerializer.Serialize(trace, JsonOpts), "workflow_trace");
 
             logger.LogError(ex, "Coordinator orchestration failed");
             UpdateTaskStatus(task, TaskState.Failed, $"Orchestration failed: {ex.Message}");

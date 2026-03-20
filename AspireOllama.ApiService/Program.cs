@@ -34,7 +34,7 @@ builder.AddBackendAuthentication();
 // Increase timeout for all HTTP clients including Ollama (AI models can be slow)
 builder.Services.ConfigureHttpClientDefaults(http =>
 {
-    http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMinutes(10));
+    http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromMinutes(15));
 });
 
 // ============================================================
