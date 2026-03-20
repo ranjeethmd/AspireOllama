@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AspireOllama.A2A.Shared;
 using OllamaSharp;
 
@@ -119,16 +120,22 @@ Task: {userRequest}";
 
             planSw.Stop();
 
-            var steps = ParsePlan(plan);
+            var steps = DeserializePlan(plan);
+            // Assign step numbers by array position, clamp deps to earlier steps
+            for (int i = 0; i < steps.Count; i++)
+            {
+                steps[i].Step = i + 1;
+                steps[i].DependsOn = steps[i].DependsOn.Where(d => d > 0 && d < i + 1).Distinct().ToList();
+            }
             if (steps.Count == 0)
             {
                 // Fallback: if LLM failed to produce valid JSON, create a simple plan
                 steps =
                 [
-                    new PlannedStep(1, "research", "gather_context", $"Gather relevant information for: {userRequest}", []),
-                    new PlannedStep(2, "planner", "create_plan", $"Create a detailed plan for: {userRequest}", []),
-                    new PlannedStep(3, "code", "generate_code", $"Implement the solution for: {userRequest}", [1, 2]),
-                    new PlannedStep(4, "reviewer", "review", $"Review all results for: {userRequest}", [1, 2, 3])
+                    new() { Step = 1, Agent = "research", Action = "gather_context", Instruction = $"Gather relevant information for: {userRequest}", DependsOn = [] },
+                    new() { Step = 2, Agent = "planner", Action = "create_plan", Instruction = $"Create a detailed plan for: {userRequest}", DependsOn = [] },
+                    new() { Step = 3, Agent = "code", Action = "generate_code", Instruction = $"Implement the solution for: {userRequest}", DependsOn = [1, 2] },
+                    new() { Step = 4, Agent = "reviewer", Action = "review", Instruction = $"Review all results for: {userRequest}", DependsOn = [1, 2, 3] }
                 ];
                 logger.LogWarning("Failed to parse LLM plan, using fallback plan with {Count} steps", steps.Count);
             }
@@ -257,17 +264,16 @@ Only include steps that need fixing. Return ONLY the JSON array.
 
 Task: {userRequest}", ct);
 
-                    var resolutionSteps = ParsePlan(resolutionPlan);
+                    var resolutionSteps = DeserializePlan(resolutionPlan);
                     if (resolutionSteps.Count > 0)
                     {
                         logger.LogInformation("Executing {Count} resolution steps", resolutionSteps.Count);
                         foreach (var resStep in resolutionSteps)
                         {
-                            var (resResult, resMs) = await CallAgentTracked(resStep.Agent, resStep.Instruction, ct);
-                            trace.Add(new WorkflowStep(++stepCounter, resStep.Agent, $"{resStep.Action}_resolved", "completed", resMs, resResult));
-                            AddTextArtifact(task, $"resolution_{resStep.Agent}_{resStep.Action}", resResult);
-                            // Update context with resolved output
-                            context[resStep.Agent] = resResult;
+                            var tracked = await CallAgentTracked(resStep.Agent, resStep.Instruction, ct);
+                            trace.Add(new WorkflowStep(++stepCounter, resStep.Agent, $"{resStep.Action}_resolved", "completed", tracked.elapsedMs, tracked.result));
+                            AddTextArtifact(task, $"resolution_{resStep.Agent}_{resStep.Action}", tracked.result);
+                            context[resStep.Agent] = tracked.result;
                         }
                     }
                 }
@@ -322,52 +328,16 @@ Task: {userRequest}", ct);
     /// Parses the LLM's JSON plan into structured steps.
     /// Renumbers steps sequentially (LLMs often return all zeros) and remaps dependencies.
     /// </summary>
-    private List<PlannedStep> ParsePlan(string llmOutput)
+    private List<PlannedStep> DeserializePlan(string llmOutput)
     {
         try
         {
-            var start = llmOutput.IndexOf('[');
-            var end = llmOutput.LastIndexOf(']');
-            if (start < 0 || end < 0 || end <= start) return [];
-
-            var json = llmOutput[start..(end + 1)];
-            var raw = JsonSerializer.Deserialize<List<PlannedStep>>(json, JsonOpts) ?? [];
-
-            if (raw.Count == 0) return [];
-
-            // Simple approach: assign step = array position + 1
-            // Treat dependsOn as 1-based positions into the array
-            // If LLM used 0-based, shift up by 1
-            var allZeroBased = raw.All(s => s.DependsOn is null || s.DependsOn.All(d => d >= 0 && d < raw.Count));
-            var allStepsZero = raw.All(s => s.Step == 0);
-
-            var result = new List<PlannedStep>();
-            for (int i = 0; i < raw.Count; i++)
-            {
-                var stepNum = i + 1;
-                var deps = raw[i].DependsOn?.ToList() ?? [];
-
-                // If LLM returned 0-based deps (0, 1, 2...) shift to 1-based
-                if (allStepsZero && deps.Any(d => d == 0))
-                {
-                    deps = deps.Select(d => d + 1).ToList();
-                }
-
-                // Clamp: only allow deps that reference earlier steps
-                deps = deps.Where(d => d > 0 && d < stepNum).Distinct().ToList();
-
-                result.Add(new PlannedStep(stepNum, raw[i].Agent, raw[i].Action, raw[i].Instruction, deps));
-            }
-
-            logger.LogInformation("Parsed plan: {Count} steps — {Flow}",
-                result.Count,
-                string.Join(", ", result.Select(s => $"[{s.Step}] {s.Agent}/{s.Action} deps:{string.Join(",", s.DependsOn)}")));
-
-            return result;
+            var cleaned = llmOutput.Replace("```json", "").Replace("```", "").Trim();
+            return JsonSerializer.Deserialize<List<PlannedStep>>(cleaned, JsonOpts) ?? [];
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to parse plan JSON from LLM output");
+            logger.LogWarning(ex, "Failed to deserialize plan JSON");
             return [];
         }
     }
@@ -458,11 +428,65 @@ Task: {userRequest}", ct);
 
 // ── Models ──
 
-public record WorkflowStep(int Step, string Agent, string Action, string Status, long ElapsedMs, string Result, List<int>? DependsOn = null);
+/// <summary>
+/// A step in the LLM-generated execution plan.
+/// Deserialized from the JSON array produced by the planning prompt.
+/// </summary>
+public class PlannedStep
+{
+    [JsonPropertyName("step")]
+    public int Step { get; set; }
 
-public record PlannedStep(
-    int Step,
-    string Agent,
-    string Action,
-    string Instruction,
-    List<int> DependsOn);
+    [JsonPropertyName("agent")]
+    public string Agent { get; set; } = "";
+
+    [JsonPropertyName("action")]
+    public string Action { get; set; } = "";
+
+    [JsonPropertyName("instruction")]
+    public string Instruction { get; set; } = "";
+
+    [JsonPropertyName("dependsOn")]
+    public List<int> DependsOn { get; set; } = [];
+}
+
+/// <summary>
+/// A completed step in the workflow execution trace.
+/// Serialized as JSON in the workflow_trace artifact for the UI.
+/// </summary>
+public class WorkflowStep
+{
+    [JsonPropertyName("step")]
+    public int Step { get; set; }
+
+    [JsonPropertyName("agent")]
+    public string Agent { get; set; } = "";
+
+    [JsonPropertyName("action")]
+    public string Action { get; set; } = "";
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "";
+
+    [JsonPropertyName("elapsedMs")]
+    public long ElapsedMs { get; set; }
+
+    [JsonPropertyName("result")]
+    public string Result { get; set; } = "";
+
+    [JsonPropertyName("dependsOn")]
+    public List<int>? DependsOn { get; set; }
+
+    public WorkflowStep() { }
+
+    public WorkflowStep(int step, string agent, string action, string status, long elapsedMs, string result, List<int>? dependsOn = null)
+    {
+        Step = step;
+        Agent = agent;
+        Action = action;
+        Status = status;
+        ElapsedMs = elapsedMs;
+        Result = result;
+        DependsOn = dependsOn;
+    }
+}
