@@ -25,6 +25,10 @@ This document provides a comprehensive visual overview of the AspireOllama archi
 17. [Infrastructure: Observability (New Relic)](#infrastructure-observability-new-relic)
 18. [Infrastructure: YARP Gateway & Let's Encrypt](#infrastructure-yarp-gateway--lets-encrypt)
 19. [Infrastructure: Kubernetes Deployment](#infrastructure-kubernetes-deployment)
+20. [User Sessions & Scoping](#user-sessions--scoping)
+21. [Timeout Configuration](#timeout-configuration)
+22. [Heartbeat Logging](#heartbeat-logging)
+23. [Workflow UI](#workflow-ui)
 
 ---
 
@@ -50,9 +54,10 @@ AspireOllama is a distributed AI chat application with the following key capabil
 │   │    A2A      │   │   Local     │   │   Cloud     │   │   Modern    │    │
 │   │   Agents    │   │    LLM      │   │   Native    │   │    UI       │    │
 │   │             │   │             │   │             │   │             │    │
-│   │  Planner    │   │   Ollama    │   │   Aspire    │   │   Dark      │    │
-│   │  Reviewer   │   │   GPU       │   │  Discovery  │   │   Theme     │    │
-│   │  Research   │   │             │   │             │   │             │    │
+│   │ Coordinator │   │   Ollama    │   │   Aspire    │   │   Dark      │    │
+│   │  Planner    │   │   GPU       │   │  Discovery  │   │   Theme     │    │
+│   │  Reviewer   │   │             │   │             │   │             │    │
+│   │ Research    │   │             │   │             │   │             │    │
 │   │  Code       │   │             │   │             │   │             │    │
 │   └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘    │
 │                                                                             │
@@ -90,7 +95,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
 │   └───────────┘   │       │   └───────────┘   │       │   └───────────┘   │
 │                   │       │                   │       │                   │
 └───────────────────┘       │   ┌───────────┐   │       └───────────────────┘
-                            │   │  SQLite   │   │
+                            │   │  MongoDB  │   │
                             │   │ Database  │   │
                             │   └───────────┘   │
                             │                   │
@@ -100,8 +105,8 @@ AspireOllama is a distributed AI chat application with the following key capabil
                     │                 │                 │
                     ▼                 ▼                 ▼
             ┌───────────────┐ ┌───────────────┐ ┌───────────────┐
-            │    OLLAMA     │ │    llava      │ │   llama3.1    │
-            │   Container   │ │    Model      │ │    Model      │
+            │    OLLAMA     │ │ Qwen2.5-VL   │ │    Qwen3      │
+            │   Container   │ │   (32B)       │ │    (32B)      │
             │               │ │               │ │               │
             │   GPU Accel   │ │   Vision      │ │    Tools      │
             │   Data Vol    │ │   Images      │ │   Functions   │
@@ -628,17 +633,21 @@ AspireOllama is a distributed AI chat application with the following key capabil
          │  complexity   │ review_    │ get_topic_ │ generate_     │
          │ suggest_      │  code      │  details   │  code         │
          │  agents       │ provide_   │ gather_    │ analyze_      │
-         │ orchestrate_  │  feedback  │  context   │  code         │
-         │  workflow     │            │ suggest_   │ generate_     │
-         │               │            │  topics    │  tests        │
+         │               │  feedback  │  context   │  code         │
+         │ (3 skills)    │            │ suggest_   │ generate_     │
+         │               │ (4 skills) │  topics    │  tests        │
          │               │            │            │ refactor_     │
-         │               │            │            │  code         │
+         │               │            │ (4 skills) │  code         │
+         │               │            │            │ (5 skills)    │
          └───────────────┴────────────┴────────────┘               │
                                       │                            │
                               ┌───────▼───────┐                    │
                               │    Ollama     │◄───────────────────┘
-                              │   (llama3.1)  │
+                              │  (Qwen3 32B) │
                               └───────────────┘
+
+    Coordinator knows all 17 skills across 4 agents and uses AI-driven
+    planning to select skills and route tasks.
 ```
 
 ### Agent Card Structure
@@ -650,7 +659,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
 
     {
       "name": "Planner Agent",
-      "description": "AI-powered task planning and orchestration",
+      "description": "AI-powered task planning and complexity assessment",
       "version": "2.0.0",
       "url": "http://planner-agent",
       "provider": { "organization": "AspireOllama" },
@@ -783,7 +792,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
             ▼                            ▼                            ▼
     ┌───────────────────────────────────────────────────────────────────────┐
     │                                                                       │
-    │                          SQLite DATABASE                              │
+    │                      MongoDB DATABASE (scoped by userId)             │
     │                                                                       │
     │   ┌─────────────────────┐           ┌─────────────────────────────┐  │
     │   │    ChatSessions     │           │       ChatMessages          │  │
@@ -1256,7 +1265,7 @@ MongoDB stores chat persistence, Qdrant stores document vectors for RAG.
 │  User's question here                                               │
 │    │                                                                │
 │    ▼                                                                │
-│  LLM (llama3.1) responds using retrieved context                    │
+│  LLM (Qwen3 32B) responds using retrieved context                   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1457,3 +1466,86 @@ docker build --build-arg PROJECT=AspireOllama.Web -t aspireollama-web .
 ```bash
 kubectl apply -k k8s/base/
 ```
+
+---
+
+## User Sessions & Scoping
+
+Chat sessions are scoped by `userId` in MongoDB. Each user sees only their own sessions and messages.
+
+```
+User authenticates via Azure AD
+  │
+  ▼
+GET /api/me → returns { name, email, roles } from access token
+  │
+  ▼
+Sessions filtered by userId in MongoDB queries
+  │
+  ├─ POST /api/sessions        → creates session with userId
+  ├─ GET  /api/sessions        → returns only user's sessions
+  ├─ GET  /api/sessions/{id}   → validates userId ownership
+  └─ DELETE /api/sessions/{id} → validates userId ownership
+```
+
+---
+
+## Timeout Configuration
+
+Consistent timeouts are configured across all services to handle long-running LLM operations.
+
+```
+┌────────────────────────────────┬──────────────────────┐
+│  Connection                    │  Timeout             │
+├────────────────────────────────┼──────────────────────┤
+│  Ollama HTTP client            │  10 minutes          │
+│  MCP client                    │  10 minutes          │
+│  A2A agent client              │  10 minutes          │
+│  Gateway → Coordinator/API     │  15 minutes          │
+│  Gateway → other services      │  10 minutes          │
+└────────────────────────────────┴──────────────────────┘
+```
+
+The 15-minute gateway timeout for Coordinator and API Service routes allows multi-agent workflows to complete without premature termination.
+
+---
+
+## Heartbeat Logging
+
+Aspire health-check heartbeat logging is suppressed in `ServiceDefaults` to reduce log noise. The `Microsoft.Extensions.Diagnostics.HealthChecks` logger category is filtered to `Warning` level, so only non-healthy heartbeat results appear in logs.
+
+---
+
+## Workflow UI
+
+The Agents page (`Agents.razor`) provides a visual multi-agent workflow experience.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Workflow UI Layout                     │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  Hub Diagram                                       │  │
+│  │  Coordinator plan → [Agents box] → Coordinator     │  │
+│  │                      aggregate                     │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  Preset Buttons                                    │  │
+│  │  [Plan & Review]  [Research & Code]  [Full Flow]   │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  Expandable Blocks (per phase)                     │  │
+│  │  ▶ Assess   ▶ Plan   ▶ Execute   ▶ Review         │  │
+│  │  ▶ Aggregate                                       │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  Call Summary (expandable)                         │  │
+│  │  Final Result (expandable)                         │  │
+│  └────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+Agent skill counts are displayed per agent in the UI (Planner: 3, Research: 4, Code: 5, Reviewer: 4).

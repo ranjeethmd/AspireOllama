@@ -422,6 +422,15 @@ For local development without full identity provider setup:
 - [x] Add Qdrant vector database — RAG document storage with dot product similarity
 - [x] Role-based document upload — `Api.Admin` / `Api.Documents.Manage` on access token
 - [x] User profile from access token — `GET /api/me` returns roles, cached by `UserRoleService`
+- [x] User sessions scoped by userId — MongoDB queries filter by userId from access token
+- [x] Consistent timeouts — 10 minutes across all services, 15 minutes for gateway to coordinator/apiservice
+- [x] Heartbeat logging suppressed — `ServiceDefaults` filters health-check logs to Warning level
+- [x] Coordinator Agent — AI-driven planning, parallel execution, conflict resolution, knows all 17 skills across 4 agents
+- [x] Dual-model architecture — Qwen3 (32B) for text/tools, Qwen2.5-VL (32B) for vision, model names centralized in `OllamaModels.cs`
+- [x] RAG as a tool — `search_knowledge_base` with relevance scores and `top_k` parameter
+- [x] Image analysis as a tool — `analyze_image` retrieves from session history
+- [x] Calculator tool — built-in math evaluation
+- [x] Workflow UI — hub diagram, expandable blocks, preset buttons, Call Summary and Final Result sections
 - [ ] Set up audit logging
 - [ ] Configure rate limiting
 - [ ] Test OBO flow end-to-end

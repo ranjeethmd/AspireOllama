@@ -73,7 +73,7 @@ AspireOllama/
 | `AspireOllama.ServiceDefaults` | Common service config, auth (OIDC/OBO/JWT), OpenTelemetry with resource attributes, health checks |
 | `A2A/AspireOllama.A2A.Shared` | Shared A2A protocol models, agent client, and server base class |
 | `A2A/AspireOllama.A2A.CoordinatorAgent` | Multi-agent workflow orchestrator with parallel execution and conflict resolution |
-| `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and multi-agent workflow orchestration |
+| `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and complexity assessment |
 | `A2A/AspireOllama.A2A.ReviewerAgent` | Quality assurance agent for reviewing responses and code |
 | `A2A/AspireOllama.A2A.ResearchAgent` | Knowledge gathering and context synthesis agent |
 | `A2A/AspireOllama.A2A.CodeAgent` | Code generation, execution, analysis, and testing agent |
@@ -165,8 +165,8 @@ AspireOllama includes specialized AI agents that communicate via the [Agent-to-A
 
 | Agent | Description | Skills |
 |-------|-------------|--------|
-| **Coordinator** | Orchestrates multi-agent workflows with parallel execution, conflict resolution, and aggregation | orchestrate_task |
-| **Planner** | Task planning and workflow orchestration | create_plan, assess_complexity, suggest_agents, orchestrate_workflow |
+| **Coordinator** | Orchestrates multi-agent workflows with AI-driven planning, parallel execution, conflict resolution, and aggregation. Knows all 17 skills across 4 agents (Planner: 3, Research: 4, Code: 5, Reviewer: 4). | orchestrate_task |
+| **Planner** | Task planning and complexity assessment | create_plan, assess_complexity, suggest_agents |
 | **Reviewer** | Quality assurance and validation | review_response, review_code, review_plan, provide_feedback |
 | **Research** | Knowledge gathering and context synthesis | search_knowledge, get_topic_details, gather_context, suggest_topics |
 | **Code** | Code generation, execution, and analysis | execute_csharp, generate_code, analyze_code, generate_tests, refactor_code |
@@ -352,6 +352,28 @@ The Coordinator Agent orchestrates complex multi-agent workflows. The API servic
 - **Retry with backoff** — max 2 retries per subtask, exponential backoff, 5-minute timeout
 - **Result aggregation** — LLM synthesizes all agent outputs into a coherent response
 - **Full artifact tracking** — each phase stored as a named artifact on the task
+
+## User Sessions
+
+Chat sessions are scoped by `userId` in MongoDB. Each user sees only their own sessions. The user profile (name, email, roles) is read from the access token via `GET /api/me`.
+
+## Timeouts
+
+Consistent 10-minute timeouts are configured across all services (Ollama HTTP client, MCP client, A2A client). The YARP gateway uses 15-minute timeouts for routes to the Coordinator and API Service to allow for multi-agent workflows.
+
+## Heartbeat Logging
+
+Aspire health-check heartbeat logging is suppressed in `ServiceDefaults` to reduce log noise. Only non-healthy heartbeat results are logged.
+
+## Workflow UI
+
+The Agents page (`Agents.razor`) provides a visual workflow experience:
+
+- **Hub diagram** showing the flow: Coordinator plan --> Agents box --> Coordinator aggregate
+- **Expandable blocks** for each workflow phase (assess, plan, execute, review, aggregate)
+- **Preset buttons** for common multi-agent tasks
+- **Call Summary** and **Final Result** displayed as expandable sections
+- Agent skill counts shown per agent in the UI
 
 ## Observability (New Relic)
 
