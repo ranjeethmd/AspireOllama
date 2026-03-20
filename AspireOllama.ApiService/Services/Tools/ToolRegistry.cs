@@ -2,10 +2,6 @@ using Microsoft.Extensions.AI;
 
 namespace AspireOllama.ApiService.Services.Tools;
 
-/// <summary>
-/// Registry for collecting and managing all available AI tools.
-/// Converts tool methods to AIFunction instances using AIFunctionFactory.
-/// </summary>
 public class ToolRegistry : IToolRegistry
 {
     private readonly List<AIFunction> _tools = new();
@@ -16,6 +12,8 @@ public class ToolRegistry : IToolRegistry
         WebSearchTool webSearchTool,
         CodeExecutionTool codeExecutionTool,
         FileOperationsTool fileOperationsTool,
+        RagSearchTool ragSearchTool,
+        VisionTool visionTool,
         ILogger<ToolRegistry> logger)
     {
         _logger = logger;
@@ -23,19 +21,31 @@ public class ToolRegistry : IToolRegistry
         if (calculatorTool.IsEnabled)
         {
             _tools.Add(AIFunctionFactory.Create(calculatorTool.Calculate, "calculator"));
-            _logger.LogInformation("Registered tool: {Name}", calculatorTool.Name);
+            _logger.LogInformation("Registered tool: calculator");
         }
 
         if (webSearchTool.IsEnabled)
         {
             _tools.Add(AIFunctionFactory.Create(webSearchTool.SearchAsync, "web_search"));
-            _logger.LogInformation("Registered tool: {Name}", webSearchTool.Name);
+            _logger.LogInformation("Registered tool: web_search");
+        }
+
+        if (ragSearchTool.IsEnabled)
+        {
+            _tools.Add(AIFunctionFactory.Create(ragSearchTool.SearchAsync, "search_knowledge_base"));
+            _logger.LogInformation("Registered tool: search_knowledge_base");
+        }
+
+        if (visionTool.IsEnabled)
+        {
+            _tools.Add(AIFunctionFactory.Create(visionTool.AnalyzeAsync, "analyze_image"));
+            _logger.LogInformation("Registered tool: analyze_image");
         }
 
         if (codeExecutionTool.IsEnabled)
         {
             _tools.Add(AIFunctionFactory.Create(codeExecutionTool.ExecuteAsync, "execute_code"));
-            _logger.LogInformation("Registered tool: {Name}", codeExecutionTool.Name);
+            _logger.LogInformation("Registered tool: execute_code");
         }
 
         if (fileOperationsTool.IsEnabled)
@@ -43,19 +53,14 @@ public class ToolRegistry : IToolRegistry
             _tools.Add(AIFunctionFactory.Create(fileOperationsTool.ListFiles, "list_files"));
             _tools.Add(AIFunctionFactory.Create(fileOperationsTool.ReadFile, "read_file"));
             _tools.Add(AIFunctionFactory.Create(fileOperationsTool.WriteFile, "write_file"));
-            _logger.LogInformation("Registered tool: {Name} (3 functions)", fileOperationsTool.Name);
+            _logger.LogInformation("Registered tool: file_operations (3 functions)");
         }
 
         _logger.LogInformation("Tool registry initialized with {Count} tools", _tools.Count);
     }
 
-    /// <inheritdoc />
-    public IReadOnlyList<AIFunction> GetEnabledTools()
-    {
-        return _tools.AsReadOnly();
-    }
+    public IReadOnlyList<AIFunction> GetEnabledTools() => _tools.AsReadOnly();
 
-    /// <inheritdoc />
     public void RegisterTool(AIFunction tool)
     {
         _tools.Add(tool);

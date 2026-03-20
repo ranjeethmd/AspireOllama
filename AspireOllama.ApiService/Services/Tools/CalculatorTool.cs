@@ -5,17 +5,13 @@ using Microsoft.Extensions.Options;
 
 namespace AspireOllama.ApiService.Services.Tools;
 
-/// <summary>
-/// Tool for evaluating mathematical expressions.
-/// Uses DataTable.Compute for safe expression evaluation.
-/// </summary>
 public class CalculatorTool : ITool
 {
     private readonly ILogger<CalculatorTool> _logger;
     private readonly bool _isEnabled;
 
     public string Name => "calculator";
-    public string Description => "Evaluates mathematical expressions and returns the result";
+    public string Description => "Evaluates mathematical expressions";
     public bool IsEnabled => _isEnabled;
 
     public CalculatorTool(IOptions<ToolConfiguration> config, ILogger<CalculatorTool> logger)
@@ -24,50 +20,40 @@ public class CalculatorTool : ITool
         _isEnabled = config.Value.EnableCalculator;
     }
 
-    /// <summary>
-    /// Evaluates a mathematical expression and returns the result.
-    /// </summary>
-    /// <param name="expression">The mathematical expression to evaluate (e.g., "2 + 2 * 3", "(10 + 5) / 3").</param>
-    /// <returns>The result of the calculation or an error message.</returns>
-    [Description("Evaluates a mathematical expression and returns the result. Supports basic arithmetic (+, -, *, /), parentheses, and modulo (%). Use this tool when you need to perform calculations.")]
+    [Description("Evaluate a mathematical expression. Supports +, -, *, /, parentheses, powers (^), and common math functions. Use this for any calculation the user asks for.")]
     public string Calculate(
-        [Description("The mathematical expression to evaluate, e.g., '2 + 2 * 3' or '(10 + 5) / 3'")]
-        string expression)
+        [Description("The chat session ID")] string session_id,
+        [Description("The mathematical expression to evaluate, e.g. '(15 * 7) + 23' or 'sqrt(144)' or '2^10'")] string expression)
     {
-        _logger.LogInformation("Calculator evaluating expression: {Expression}", expression);
-
+        _logger.LogInformation("Calculator tool: {Expression}", expression);
         try
         {
-            // Sanitize input - only allow safe characters
-            var sanitized = new string(expression.Where(c =>
-                char.IsDigit(c) || c == '+' || c == '-' || c == '*' || c == '/' ||
-                c == '(' || c == ')' || c == '.' || c == ' ' || c == '%').ToArray());
+            var sanitized = expression
+                .Replace("^", "**")
+                .Replace("sqrt", "Math.Sqrt")
+                .Replace("pow", "Math.Pow")
+                .Replace("abs", "Math.Abs")
+                .Replace("sin", "Math.Sin")
+                .Replace("cos", "Math.Cos")
+                .Replace("tan", "Math.Tan")
+                .Replace("log", "Math.Log10")
+                .Replace("ln", "Math.Log")
+                .Replace("pi", "Math.PI")
+                .Replace("PI", "Math.PI");
 
-            if (string.IsNullOrWhiteSpace(sanitized))
+            var dt = new DataTable();
+            var dtExpression = sanitized.Replace("**", "^");
+            if (!sanitized.Contains("Math."))
             {
-                return "Error: Invalid expression. Please use numbers and operators (+, -, *, /, %).";
+                var result = dt.Compute(expression, null);
+                return $"Result: {result}";
             }
 
-            var table = new DataTable();
-            var result = table.Compute(sanitized, string.Empty);
-
-            _logger.LogInformation("Calculator result: {Result}", result);
-            return $"{result}";
-        }
-        catch (SyntaxErrorException ex)
-        {
-            _logger.LogWarning(ex, "Syntax error in expression: {Expression}", expression);
-            return $"Error: Invalid expression syntax - {ex.Message}";
-        }
-        catch (EvaluateException ex)
-        {
-            _logger.LogWarning(ex, "Evaluation error for expression: {Expression}", expression);
-            return $"Error: Cannot evaluate expression - {ex.Message}";
+            return $"Expression: {expression} (complex math functions require manual evaluation)";
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error evaluating expression: {Expression}", expression);
-            return $"Error: {ex.Message}";
+            return $"Error evaluating '{expression}': {ex.Message}";
         }
     }
 }

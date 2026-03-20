@@ -120,7 +120,8 @@ builder.Services.AddSingleton<CalculatorTool>();
 builder.Services.AddSingleton<WebSearchTool>();
 builder.Services.AddSingleton<CodeExecutionTool>();
 builder.Services.AddSingleton<FileOperationsTool>();
-// ImageAnalysisTool and DocumentAnalysisTool removed — Qwen handles vision natively
+builder.Services.AddScoped<RagSearchTool>();  // Scoped — uses scoped IRagRetrievalService
+builder.Services.AddScoped<VisionTool>();     // Scoped — uses keyed IChatClient
 
 // Tool registry (collects all tools) - scoped to support scoped tools
 builder.Services.AddScoped<IToolRegistry, ToolRegistry>();
