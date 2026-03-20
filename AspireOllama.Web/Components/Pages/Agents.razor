@@ -253,18 +253,18 @@
                                     var allSteps = workflowResult?.Interactions ?? new List<AgentInteraction>();
                                     var coordSteps = allSteps.Where(s => s.AgentName == "coordinator").ToList();
                                     var agentSteps = allSteps.Where(s => s.AgentName != "coordinator").ToList();
-                                    var planStep = coordSteps.FirstOrDefault(s => s.ToolName == "plan");
-                                    var aggStep = coordSteps.FirstOrDefault(s => s.ToolName == "aggregate");
 
-                                    <!-- Top: Coordinator Plan -->
+                                    <!-- Top: Coordinator Plan (first coordinator step) -->
+                                    var planStep = coordSteps.FirstOrDefault();
                                     @if (planStep != null)
                                     {
+                                        var planOk = planStep.Status.Contains("completed") || planStep.Status == "success";
                                         <div class="wf-node coord">
                                             <div class="wf-node-bar">
                                                 <span class="wf-node-icon">C</span>
                                                 <span class="wf-node-label">COORDINATOR</span>
-                                                <span class="wf-node-skill">plan</span>
-                                                <span class="wf-node-badge ok">OK</span>
+                                                <span class="wf-node-skill">@planStep.ToolName</span>
+                                                <span class="wf-node-badge @(planOk ? "ok" : "err")">@(planOk ? "OK" : "FAIL")</span>
                                                 <span class="wf-node-ms">@(Math.Round(planStep.ExecutionTimeMs / 1000.0, 1))s</span>
                                                 <button class="wf-node-btn" @onclick="() => ToggleStepExpansion(planStep.Step)">@(expandedSteps.Contains(planStep.Step) ? "−" : "+")</button>
                                             </div>
@@ -273,12 +273,10 @@
                                                 <pre class="wf-node-detail">@FormatResult(planStep.Result)</pre>
                                             }
                                         </div>
+                                        <div class="wf-pipe"></div>
                                     }
 
-                                    <!-- Arrow down -->
-                                    <div class="wf-pipe"></div>
-
-                                    <!-- Middle: Agent blocks inside a bordered group -->
+                                    <!-- Middle: All agent steps -->
                                     @if (agentSteps.Count > 0)
                                     {
                                         <div class="wf-agents-box">
@@ -302,26 +300,52 @@
                                                 </div>
                                             }
                                         </div>
+                                        <div class="wf-pipe"></div>
                                     }
 
-                                    <!-- Arrow down -->
-                                    <div class="wf-pipe"></div>
-
-                                    <!-- Bottom: Coordinator Aggregate -->
+                                    <!-- Bottom: Coordinator Aggregate (last coordinator step) -->
+                                    var aggStep = coordSteps.Count > 1 ? coordSteps.Last() : null;
                                     @if (aggStep != null)
                                     {
+                                        var aggOk = aggStep.Status.Contains("completed") || aggStep.Status == "success";
                                         <div class="wf-node coord">
                                             <div class="wf-node-bar">
                                                 <span class="wf-node-icon">C</span>
                                                 <span class="wf-node-label">COORDINATOR</span>
-                                                <span class="wf-node-skill">aggregate</span>
-                                                <span class="wf-node-badge ok">OK</span>
+                                                <span class="wf-node-skill">@aggStep.ToolName</span>
+                                                <span class="wf-node-badge @(aggOk ? "ok" : "err")">@(aggOk ? "OK" : "FAIL")</span>
                                                 <span class="wf-node-ms">@(Math.Round(aggStep.ExecutionTimeMs / 1000.0, 1))s</span>
                                                 <button class="wf-node-btn" @onclick="() => ToggleStepExpansion(aggStep.Step)">@(expandedSteps.Contains(aggStep.Step) ? "−" : "+")</button>
                                             </div>
                                             @if (expandedSteps.Contains(aggStep.Step))
                                             {
                                                 <pre class="wf-node-detail">@FormatResult(aggStep.Result)</pre>
+                                            }
+                                        </div>
+                                    }
+
+                                    <!-- If no coordinator steps found, show all steps as a flat list -->
+                                    @if (coordSteps.Count == 0 && allSteps.Count > 0)
+                                    {
+                                        <div class="wf-agents-box">
+                                            <div class="wf-agents-label">WORKFLOW STEPS</div>
+                                            @foreach (var step in allSteps)
+                                            {
+                                                var ok = step.Status.Contains("completed") || step.Status == "success";
+                                                <div class="wf-node @step.AgentName">
+                                                    <div class="wf-node-bar">
+                                                        <span class="wf-node-icon">@step.AgentName[..1].ToUpper()</span>
+                                                        <span class="wf-node-label">@step.AgentName.ToUpper()</span>
+                                                        <span class="wf-node-skill">@step.ToolName</span>
+                                                        <span class="wf-node-badge @(ok ? "ok" : "err")">@(ok ? "OK" : "FAIL")</span>
+                                                        <span class="wf-node-ms">@(Math.Round(step.ExecutionTimeMs / 1000.0, 1))s</span>
+                                                        <button class="wf-node-btn" @onclick="() => ToggleStepExpansion(step.Step)">@(expandedSteps.Contains(step.Step) ? "−" : "+")</button>
+                                                    </div>
+                                                    @if (expandedSteps.Contains(step.Step))
+                                                    {
+                                                        <pre class="wf-node-detail">@FormatResult(step.Result)</pre>
+                                                    }
+                                                </div>
                                             }
                                         </div>
                                     }
@@ -1761,11 +1785,14 @@
         isExecuting = true;
         workflowResult = null;
         expandedSteps.Clear();
+        showSummary = false;
+        showFinalResult = false;
 
         try
         {
             var request = new AgentWorkflowRequest { Task = workflowTask };
             workflowResult = await ChatClient.RunWorkflowAsync(request);
+            showFinalResult = true; // Auto-expand final result on completion
         }
         catch (Exception ex)
         {
