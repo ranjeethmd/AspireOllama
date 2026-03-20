@@ -32,8 +32,11 @@ public class A2AService(
         {
             try
             {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+
                 var client = httpClientFactory.CreateClient(name);
-                var response = await client.GetAsync("/.well-known/agent.json", ct);
+                var response = await client.GetAsync("/.well-known/agent.json", timeoutCts.Token);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -157,7 +160,7 @@ public class A2AService(
 
     /// <summary>
     /// Delegates workflow orchestration to the Coordinator Agent.
-    /// The Coordinator handles planning, parallel execution, conflict resolution, and aggregation.
+    /// Parses the coordinator's named artifacts into individual interaction steps for the UI.
     /// </summary>
     public async Task<AgentWorkflowResponse> RunWorkflowAsync(AgentWorkflowRequest request, CancellationToken ct = default)
     {
@@ -167,36 +170,120 @@ public class A2AService(
         {
             logger.LogInformation("Delegating workflow to Coordinator Agent: {Task}", request.Task);
 
-            // Single A2A call to the Coordinator — it handles everything
-            var result = await CallAgentToolAsync(new AgentCallRequest
+            // Send to coordinator via A2A
+            var messageText = request.Task;
+            var a2aRequest = new A2AMessageRequest
             {
-                AgentName = "coordinator",
-                ToolName = "orchestrate_task",
-                Arguments = new Dictionary<string, object?> { ["task"] = request.Task }
-            }, ct);
-
-            totalSw.Stop();
-
-            // Map the coordinator's response
-            var interactions = new List<AgentInteraction>
-            {
-                new()
+                Message = new A2AMessage
                 {
-                    Step = 1,
-                    AgentName = "coordinator",
-                    ToolName = "orchestrate_task",
-                    Arguments = new Dictionary<string, object?> { ["task"] = request.Task },
-                    Result = result.Result,
-                    ExecutionTimeMs = result.ExecutionTimeMs,
-                    Status = result.Success ? "success" : "failed"
+                    Role = "user",
+                    Parts = [new A2APart { Text = messageText }]
                 }
             };
+
+            var client = httpClientFactory.CreateClient("coordinator");
+            var response = await client.PostAsJsonAsync("/a2a/message:send", a2aRequest, _jsonOptions, ct);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<A2AMessageResponse>(_jsonOptions, ct);
+            totalSw.Stop();
+
+            // Parse the workflow_trace artifact for the UI
+            var interactions = new List<AgentInteraction>();
+            string? finalResult = null;
+
+            logger.LogInformation("Coordinator returned {ArtifactCount} artifacts",
+                result?.Task?.Artifacts?.Count ?? 0);
+
+            if (result?.Task?.Artifacts is { Count: > 0 })
+            {
+                foreach (var a in result.Task.Artifacts)
+                {
+                    logger.LogInformation("Artifact: name={Name}, parts={Parts}",
+                        a.Name ?? "(null)", a.Parts?.Count ?? 0);
+                }
+
+                // Find the workflow_trace artifact (structured JSON)
+                var traceArtifact = result.Task.Artifacts.FirstOrDefault(a => a.Name == "workflow_trace");
+                if (traceArtifact?.Parts?.FirstOrDefault()?.Text is { } traceJson)
+                {
+                    try
+                    {
+                        var steps = JsonSerializer.Deserialize<List<WorkflowTraceStep>>(traceJson, _jsonOptions);
+                        if (steps is not null)
+                        {
+                            // Group steps by their dependencies to detect parallelism
+                            var stepsByDeps = steps.GroupBy(s =>
+                                s.DependsOn is { Count: > 0 } ? string.Join(",", s.DependsOn) : "none").ToList();
+
+                            foreach (var step in steps)
+                            {
+                                // A step is parallel if another step has the same dependencies
+                                var sameDeps = steps.Count(s =>
+                                    s.Step != step.Step &&
+                                    string.Join(",", s.DependsOn ?? []) == string.Join(",", step.DependsOn ?? []));
+
+                                interactions.Add(new AgentInteraction
+                                {
+                                    Step = step.Step,
+                                    AgentName = step.Agent ?? "unknown",
+                                    ToolName = step.Action ?? "unknown",
+                                    Arguments = new Dictionary<string, object?> { ["task"] = request.Task },
+                                    DependsOn = step.DependsOn ?? [],
+                                    Result = step.Result,
+                                    ExecutionTimeMs = step.ElapsedMs,
+                                    Status = step.Status ?? "completed",
+                                    IsParallel = sameDeps > 0
+                                });
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to parse workflow trace");
+                    }
+                }
+
+                // Extract final response from the final_response artifact
+                var finalArtifact = result.Task.Artifacts.FirstOrDefault(a => a.Name == "final_response");
+                finalResult = finalArtifact?.Parts?.FirstOrDefault()?.Text;
+            }
+
+            // Fallback: if no trace was parsed, map each artifact as a step
+            if (interactions.Count == 0 && result?.Task?.Artifacts is { Count: > 0 })
+            {
+                logger.LogWarning("No workflow_trace found, falling back to artifact-based interactions");
+                var step = 1;
+                foreach (var artifact in result.Task.Artifacts)
+                {
+                    var name = artifact.Name ?? $"step_{step}";
+                    if (name == "workflow_trace") continue; // skip the trace itself
+
+                    var text = artifact.Parts?.FirstOrDefault()?.Text ?? "";
+                    interactions.Add(new AgentInteraction
+                    {
+                        Step = step++,
+                        AgentName = name.Contains("plan") ? "planner"
+                            : name.Contains("research") ? "research"
+                            : name.Contains("code") ? "code"
+                            : name.Contains("review") ? "reviewer"
+                            : "coordinator",
+                        ToolName = name,
+                        Arguments = new Dictionary<string, object?> { ["task"] = request.Task },
+                        Result = text.Length > 500 ? text[..500] + "..." : text,
+                        ExecutionTimeMs = 0,
+                        Status = "success"
+                    });
+                }
+            }
+
+            finalResult ??= result?.Task?.Status?.Message ?? "Workflow completed";
 
             return new AgentWorkflowResponse
             {
                 Task = request.Task,
                 Interactions = interactions,
-                FinalResult = result.Result?.ToString() ?? "Workflow completed",
+                FinalResult = finalResult,
                 TotalExecutionTimeMs = totalSw.ElapsedMilliseconds
             };
         }
@@ -224,7 +311,6 @@ public class A2AService(
             "assess_complexity" => $"Assess the complexity of this task: {args.GetValueOrDefault("task")}",
             "suggest_agents" => $"Suggest which agents should handle this task: {args.GetValueOrDefault("task")}",
             "create_plan" => $"Create a plan for this task: {args.GetValueOrDefault("task")}",
-            "orchestrate_workflow" => $"Orchestrate a workflow for: {args.GetValueOrDefault("task")}",
             "orchestrate_task" => $"{args.GetValueOrDefault("task")}",
             "search_knowledge" => $"Search knowledge for: {args.GetValueOrDefault("query")}",
             "get_topic_details" => $"Get details about topic: {args.GetValueOrDefault("topic")}",
@@ -298,5 +384,17 @@ public class A2ATaskStatus
 
 public class A2AArtifact
 {
+    public string? Name { get; set; }
     public List<A2APart>? Parts { get; set; }
+}
+
+public class WorkflowTraceStep
+{
+    public int Step { get; set; }
+    public string? Agent { get; set; }
+    public string? Action { get; set; }
+    public string? Status { get; set; }
+    public long ElapsedMs { get; set; }
+    public string? Result { get; set; }
+    public List<int>? DependsOn { get; set; }
 }

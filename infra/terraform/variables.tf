@@ -8,7 +8,8 @@ variable "web_redirect_uris" {
   type        = list(string)
   default = [
     "https://localhost:7200/signin-oidc",
-    "http://localhost:5200/signin-oidc"
+    "http://localhost:5200/signin-oidc",
+    "https://ai.ranjeeth.us/signin-oidc"
   ]
 }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AspireOllama.A2A.PlannerAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,14 +58,6 @@ public class PlannerA2AServer : A2AServerBase
                 Description = "Recommends which agents should handle components of a task",
                 Tags = ["routing", "delegation"],
                 Examples = ["Which agents should handle code review?", "Suggest agents for documentation task"]
-            },
-            new AgentSkill
-            {
-                Id = "orchestrate_workflow",
-                Name = "Orchestrate Workflow",
-                Description = "Coordinates multi-agent tasks and determines next steps",
-                Tags = ["orchestration", "coordination"],
-                Examples = ["Coordinate the code review workflow", "Orchestrate the deployment pipeline"]
             }
         ]
     };
@@ -89,10 +82,6 @@ public class PlannerA2AServer : A2AServerBase
             else if (lowerText.Contains("suggest") && lowerText.Contains("agent"))
             {
                 await ProcessSuggestAgents(task, text, ct);
-            }
-            else if (lowerText.Contains("orchestrate") || lowerText.Contains("workflow"))
-            {
-                await ProcessOrchestrateWorkflow(task, text, ct);
             }
             else
             {
@@ -199,53 +188,6 @@ public class PlannerA2AServer : A2AServerBase
         {
             AddTextArtifact(task, content, "Suggestions Response");
         }
-    }
-
-    private async Task ProcessOrchestrateWorkflow(A2ATask task, string taskDescription, CancellationToken ct)
-    {
-        UpdateTaskStatus(task, TaskState.Working, "Orchestrating workflow...", 20);
-
-        // This is a complex multi-agent workflow
-        var workflowSteps = new List<WorkflowStep>();
-
-        // Step 1: Assess complexity
-        UpdateTaskStatus(task, TaskState.Working, "Step 1: Assessing complexity...", 25);
-        var complexityPrompt = "Quickly assess complexity of: " + taskDescription + "\nRespond in JSON: {\"level\": \"low|medium|high\", \"needsResearch\": true, \"needsCode\": true}";
-        var complexityResult = await _ollama.Value.GenerateAsync(complexityPrompt, cancellationToken: ct).StreamToEndAsync();
-
-        workflowSteps.Add(new WorkflowStep { Step = 1, Agent = "planner", Action = "assess_complexity", Result = complexityResult?.Response });
-
-        // Step 2: Get research context if needed
-        if (_a2aClient is not null && _knownAgents.Agents.ContainsKey("research"))
-        {
-            UpdateTaskStatus(task, TaskState.Working, "Step 2: Gathering research context...", 40);
-            var researchResponse = await CallAgentAsync("research", $"Research context for: {taskDescription}", ct);
-            workflowSteps.Add(new WorkflowStep { Step = 2, Agent = "research", Action = "gather_context", Result = researchResponse?.Task?.Artifacts.FirstOrDefault()?.Parts.FirstOrDefault()?.Text });
-        }
-
-        // Step 3: Create plan
-        UpdateTaskStatus(task, TaskState.Working, "Step 3: Creating detailed plan...", 60);
-        var planPrompt = "Create a detailed plan for: " + taskDescription + "\nRespond in JSON: {\"steps\": [{\"step\": 1, \"action\": \"action\", \"agent\": \"agent\"}]}";
-        var planResult = await _ollama.Value.GenerateAsync(planPrompt, cancellationToken: ct).StreamToEndAsync();
-        workflowSteps.Add(new WorkflowStep { Step = 3, Agent = "planner", Action = "create_plan", Result = planResult?.Response });
-
-        // Step 4: Get review if available
-        if (_a2aClient is not null && _knownAgents.Agents.ContainsKey("reviewer"))
-        {
-            UpdateTaskStatus(task, TaskState.Working, "Step 4: Getting plan review...", 80);
-            var reviewResponse = await CallAgentAsync("reviewer", $"Review this plan: {planResult?.Response}", ct);
-            workflowSteps.Add(new WorkflowStep { Step = 4, Agent = "reviewer", Action = "review_plan", Result = reviewResponse?.Task?.Artifacts.FirstOrDefault()?.Parts.FirstOrDefault()?.Text });
-        }
-
-        var workflow = new WorkflowResult
-        {
-            Task = taskDescription,
-            Steps = workflowSteps,
-            Completed = true
-        };
-
-        AddArtifact(task, workflow, "Workflow Result");
-        AddResponseToHistory(task, $"Workflow completed with {workflowSteps.Count} steps");
     }
 
     private static T? ParseJsonResponse<T>(string content) where T : class

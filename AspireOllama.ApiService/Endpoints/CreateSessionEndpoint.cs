@@ -2,12 +2,10 @@ using AspireOllama.ApiService.Services.Session;
 using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
+using System.Security.Claims;
 
 namespace AspireOllama.ApiService.Endpoints;
 
-/// <summary>
-/// Creates a new chat session.
-/// </summary>
 public class CreateSessionEndpoint : EndpointWithoutRequest<ChatSession>
 {
     private readonly ISessionService _sessionService;
@@ -21,16 +19,18 @@ public class CreateSessionEndpoint : EndpointWithoutRequest<ChatSession>
     {
         Post("/sessions");
         Roles(ApiSessionsManage);
-        Summary(s =>
-        {
-            s.Summary = "Create a new chat session";
-            s.Description = "Creates a new chat session and returns the session details";
-        });
     }
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var session = await _sessionService.CreateAsync();
+        var userId = HttpContext.User.FindFirst("oid")?.Value
+            ?? HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? "anonymous";
+        var userName = HttpContext.User.FindFirst("name")?.Value
+            ?? HttpContext.User.FindFirst(ClaimTypes.Name)?.Value
+            ?? "Unknown";
+
+        var session = await _sessionService.CreateAsync(userId, userName);
         await Send.OkAsync(session, ct);
     }
 }

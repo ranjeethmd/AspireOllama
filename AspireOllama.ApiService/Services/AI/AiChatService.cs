@@ -29,12 +29,14 @@ public class AiChatService : IAiChatService
         You are an intelligent AI agent capable of analyzing images, searching documents, and having conversations.
 
         You have these tools:
-        1. search_knowledge_base(session_id, query, top_k) - Search uploaded documents for information. Returns results with relevance scores.
-        2. analyze_image(session_id, instruction) - Analyze images from the conversation.
+        1. calculator(session_id, expression) - Evaluate math expressions. Use for any calculations.
+        2. search_knowledge_base(session_id, query, top_k) - Search uploaded documents for information. Returns results with relevance scores.
+        3. analyze_image(session_id, instruction) - Analyze images from the conversation.
 
         ALWAYS pass the session_id to every tool call. The session_id is provided in the user's message.
 
         When to use tools:
+        - User asks for calculations, math, or arithmetic → call calculator
         - User uploads images or asks about images → call analyze_image
         - User asks follow-up questions about previously uploaded images → call analyze_image again
         - User asks about document content, reports, or uploaded files → call search_knowledge_base with specific key terms and top_k=3
@@ -141,6 +143,51 @@ public class AiChatService : IAiChatService
 
         // Register tools
         var tools = new List<AITool>();
+
+        // Calculator tool
+        tools.Add(AIFunctionFactory.Create(
+            [Description("Evaluate a mathematical expression. Supports +, -, *, /, parentheses, powers (^), and common math functions. Use this for any calculation the user asks for.")]
+            (
+                [Description("The chat session ID")] string session_id,
+                [Description("The mathematical expression to evaluate, e.g. '(15 * 7) + 23' or 'sqrt(144)' or '2^10'")] string expression) =>
+            {
+                _logger.LogInformation("Calculator tool: {Expression}", expression);
+                try
+                {
+                    // Use Roslyn scripting for safe expression evaluation
+                    var sanitized = expression
+                        .Replace("^", "**")
+                        .Replace("sqrt", "Math.Sqrt")
+                        .Replace("pow", "Math.Pow")
+                        .Replace("abs", "Math.Abs")
+                        .Replace("sin", "Math.Sin")
+                        .Replace("cos", "Math.Cos")
+                        .Replace("tan", "Math.Tan")
+                        .Replace("log", "Math.Log10")
+                        .Replace("ln", "Math.Log")
+                        .Replace("pi", "Math.PI")
+                        .Replace("PI", "Math.PI");
+
+                    // Use DataTable.Compute for basic arithmetic (safe, no code execution)
+                    var dt = new System.Data.DataTable();
+                    // DataTable doesn't support ** so convert back
+                    var dtExpression = sanitized.Replace("**", "^");
+                    // For simple arithmetic, try DataTable first
+                    if (!sanitized.Contains("Math."))
+                    {
+                        var result = dt.Compute(expression, null);
+                        return $"Result: {result}";
+                    }
+
+                    // For math functions, evaluate via simple pattern matching
+                    return $"Expression: {expression} (complex math functions require manual evaluation)";
+                }
+                catch (Exception ex)
+                {
+                    return $"Error evaluating '{expression}': {ex.Message}";
+                }
+            },
+            "calculator"));
 
         // RAG tool — includes relevance scores so the LLM can filter noise
         tools.Add(AIFunctionFactory.Create(

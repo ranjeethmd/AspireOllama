@@ -16,10 +16,11 @@ public class MongoIndexInitializer(MongoCollections collections, ILogger<MongoIn
                     .Ascending(m => m.Timestamp)),
             cancellationToken: cancellationToken);
 
-        // Sessions: sorted by UpdatedAt descending
+        // Sessions: query by UserId, sorted by UpdatedAt descending
         await collections.Sessions.Indexes.CreateOneAsync(
             new CreateIndexModel<ChatSessionDocument>(
                 Builders<ChatSessionDocument>.IndexKeys
+                    .Ascending(s => s.UserId)
                     .Descending(s => s.UpdatedAt)),
             cancellationToken: cancellationToken);
 

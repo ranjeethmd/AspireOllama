@@ -27,6 +27,13 @@ public static class Extensions
         // Load Terraform-generated secrets (AzureAd, Gateway config)
         builder.Configuration.AddJsonFile("appsettings.Secrets.json", optional: true, reloadOnChange: false);
 
+        // Suppress noisy heartbeat/health check logging
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Routing.EndpointMiddleware", LogLevel.Warning);
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Server.Kestrel.Transport", LogLevel.Warning);
+        builder.Logging.AddFilter("Microsoft.AspNetCore.SignalR", LogLevel.Warning);
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Http.Connections", LogLevel.Warning);
+
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();

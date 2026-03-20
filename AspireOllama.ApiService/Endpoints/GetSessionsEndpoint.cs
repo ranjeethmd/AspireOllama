@@ -2,12 +2,10 @@ using AspireOllama.ApiService.Services.Session;
 using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
+using System.Security.Claims;
 
 namespace AspireOllama.ApiService.Endpoints;
 
-/// <summary>
-/// Retrieves all chat sessions.
-/// </summary>
 public class GetSessionsEndpoint : EndpointWithoutRequest<List<ChatSession>>
 {
     private readonly ISessionService _sessionService;
@@ -21,16 +19,15 @@ public class GetSessionsEndpoint : EndpointWithoutRequest<List<ChatSession>>
     {
         Get("/sessions");
         Roles(ApiChatRead);
-        Summary(s =>
-        {
-            s.Summary = "Get all chat sessions";
-            s.Description = "Returns a list of all chat sessions ordered by last updated";
-        });
     }
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var sessions = await _sessionService.GetAllAsync();
+        var userId = HttpContext.User.FindFirst("oid")?.Value
+            ?? HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? "anonymous";
+
+        var sessions = await _sessionService.GetAllAsync(userId);
         await Send.OkAsync(sessions, ct);
     }
 }

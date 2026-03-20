@@ -49,7 +49,9 @@ public class AgentInteraction
     public string AgentName { get; set; } = "";
     public string ToolName { get; set; } = "";
     public Dictionary<string, object?> Arguments { get; set; } = [];
+    public List<int> DependsOn { get; set; } = [];
     public object? Result { get; set; }
     public long ExecutionTimeMs { get; set; }
     public string Status { get; set; } = "";
+    public bool IsParallel { get; set; }
 }

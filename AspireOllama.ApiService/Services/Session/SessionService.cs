@@ -6,11 +6,13 @@ namespace AspireOllama.ApiService.Services.Session;
 
 public class SessionService(MongoCollections collections) : ISessionService
 {
-    public async Task<ChatSession> CreateAsync()
+    public async Task<ChatSession> CreateAsync(string userId, string userName)
     {
         var session = new ChatSessionDocument
         {
             Id = Guid.NewGuid().ToString(),
+            UserId = userId,
+            UserName = userName,
             Title = "New Chat",
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -20,10 +22,10 @@ public class SessionService(MongoCollections collections) : ISessionService
         return ToDto(session);
     }
 
-    public async Task<List<ChatSession>> GetAllAsync()
+    public async Task<List<ChatSession>> GetAllAsync(string userId)
     {
         var sessions = await collections.Sessions
-            .Find(FilterDefinition<ChatSessionDocument>.Empty)
+            .Find(s => s.UserId == userId)
             .SortByDescending(s => s.UpdatedAt)
             .ToListAsync();
 
