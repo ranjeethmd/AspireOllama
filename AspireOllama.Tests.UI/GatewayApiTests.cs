@@ -10,24 +10,18 @@ namespace AspireOllama.Tests.UI;
 /// </summary>
 [Parallelizable(ParallelScope.Self)]
 [TestFixture]
-public class GatewayApiTests : PageTest
+public class GatewayApiTests : AppTestBase
 {
-    private string _baseUrl = "https://localhost:7170";
     private IAPIRequestContext _api = null!;
 
     private static readonly string[] AllAgents = ["coordinator", "planner", "reviewer", "research", "code"];
 
     [SetUp]
-    public async Task Setup()
+    public async Task SetupApiContext()
     {
-        var envUrl = Environment.GetEnvironmentVariable("APP_URL")
-                  ?? Environment.GetEnvironmentVariable("GATEWAY_URL");
-        if (!string.IsNullOrEmpty(envUrl))
-            _baseUrl = envUrl;
-
         _api = await Playwright.APIRequest.NewContextAsync(new()
         {
-            BaseURL = _baseUrl,
+            BaseURL = BaseUrl,
             IgnoreHTTPSErrors = true
         });
     }
