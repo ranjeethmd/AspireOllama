@@ -690,4 +690,4 @@ Stop the running application before rebuilding:
 
 ## License
 
-MIT
+All rights reserved. This software is proprietary and confidential. No part of this software may be reproduced, distributed, or transmitted in any form without prior written permission from the author.
