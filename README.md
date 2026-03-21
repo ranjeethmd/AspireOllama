@@ -31,7 +31,7 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 ## Screenshots
 
 ### Chat Interface — Markdown Rendering, Web Search & Tool Calling
-![Chat UI](<images/localhost_52112_chat_ca6eb5b4-3604-4e03-b0d9-da64f09cce18 (1).png>)
+![Chat UI](<images/localhost_52112_chat_ca6eb5b4-3604-4e03-b0d9-da64f09cce18 (2).png>)
 *AI assistant with markdown-rendered responses, web search results, session history sidebar, and dark theme*
 
 ### A2A Agents — Skills & Workflow
