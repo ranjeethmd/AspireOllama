@@ -408,6 +408,10 @@ Aspire health-check heartbeat logging is suppressed in `ServiceDefaults` to redu
 
 ## Workflow UI
 
+### Multi-Agent Workflow
+![Workflow UI](<images/localhost_52112_agents (1).png>)
+*Multi-agent workflow showing Coordinator orchestration with hub diagram, execution phases, call summary, and final result*
+
 The Agents page (`Agents.razor`) provides a visual workflow experience:
 
 - **Hub diagram** showing the flow: Coordinator plan --> Agents box --> Coordinator aggregate
