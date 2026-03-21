@@ -5,6 +5,7 @@
 @inject ChatApiClient ChatClient
 @inject NavigationManager Navigation
 @inject UserRoleService RoleService
+@inject IJSRuntime JS
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>AI Agent</PageTitle>
@@ -94,7 +95,7 @@
             </div>
         </div>
 
-        <div class="messages-area">
+        <div class="messages-area" @ref="messagesArea">
             @if (messages.Count == 0 && !isLoading)
             {
                 <div class="welcome-screen">
@@ -185,7 +186,14 @@
                             }
                             @if (!string.IsNullOrWhiteSpace(message.Content))
                             {
-                                <div class="message-text">@message.Content</div>
+                                @if (message.IsUser)
+                                {
+                                    <div class="message-text">@message.Content</div>
+                                }
+                                else
+                                {
+                                    <div class="message-text markdown-body">@((MarkupString)RenderMarkdown(message.Content))</div>
+                                }
                             }
                             @if (message.ToolCalls.Count > 0)
                             {
@@ -799,7 +807,74 @@
         background: rgba(255, 255, 255, 0.08);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-bottom-left-radius: 4px;
+        white-space: normal;
     }
+
+    /* Markdown rendering in agent messages */
+    .markdown-body p { margin: 0 0 0.75em; }
+    .markdown-body p:last-child { margin-bottom: 0; }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3,
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+        margin: 1em 0 0.5em;
+        font-weight: 600;
+    }
+    .markdown-body h1 { font-size: 1.4em; }
+    .markdown-body h2 { font-size: 1.25em; }
+    .markdown-body h3 { font-size: 1.1em; }
+    .markdown-body ul, .markdown-body ol {
+        margin: 0.5em 0;
+        padding-left: 1.5em;
+    }
+    .markdown-body li { margin-bottom: 0.25em; }
+    .markdown-body code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.15em 0.4em;
+        border-radius: 4px;
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.9em;
+    }
+    .markdown-body pre {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 8px;
+        padding: 1em;
+        overflow-x: auto;
+        margin: 0.75em 0;
+    }
+    .markdown-body pre code {
+        background: none;
+        padding: 0;
+        font-size: 0.85em;
+    }
+    .markdown-body blockquote {
+        border-left: 3px solid rgba(255, 255, 255, 0.3);
+        margin: 0.75em 0;
+        padding: 0.25em 1em;
+        color: rgba(255, 255, 255, 0.7);
+    }
+    .markdown-body table {
+        border-collapse: collapse;
+        margin: 0.75em 0;
+        width: 100%;
+    }
+    .markdown-body th, .markdown-body td {
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 0.4em 0.75em;
+        text-align: left;
+    }
+    .markdown-body th {
+        background: rgba(255, 255, 255, 0.05);
+        font-weight: 600;
+    }
+    .markdown-body hr {
+        border: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.15);
+        margin: 1em 0;
+    }
+    .markdown-body a {
+        color: #60a5fa;
+        text-decoration: underline;
+    }
+    .markdown-body strong { font-weight: 600; }
 
     /* Message Attachments */
     .message-attachments {
@@ -1275,6 +1350,9 @@
     [Parameter]
     public string? SessionId { get; set; }
 
+    // DOM references
+    private ElementReference messagesArea;
+
     // Session and message state
     private List<ChatSession> sessions = new();           // All chat sessions for sidebar
     private List<ChatMessageDisplay> messages = new();     // Messages in current session
@@ -1456,6 +1534,7 @@
                 pendingFiles.Clear();
                 Navigation.NavigateTo($"/chat/{sessionId}", replace: true);
                 StateHasChanged();
+                await ScrollToBottom();
             }
         }
         catch (Exception ex)
@@ -1667,6 +1746,7 @@
         messages.Add(new ChatMessageDisplay(userMessage, true, imagesToSend, filesToSend, new List<ToolCall>()));
         isLoading = true;
         StateHasChanged();
+        await ScrollToBottom();
 
         try
         {
@@ -1699,7 +1779,26 @@
         {
             isLoading = false;
             StateHasChanged();
+            await ScrollToBottom();
         }
+    }
+
+    // ============================================================
+    // UI Helpers
+    // ============================================================
+
+    private static readonly Markdig.MarkdownPipeline MarkdownPipeline = new Markdig.MarkdownPipelineBuilder().Build();
+
+    private static string RenderMarkdown(string markdown) =>
+        Markdig.Markdown.ToHtml(markdown, MarkdownPipeline);
+
+    private async Task ScrollToBottom()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "document.querySelector('.messages-area').scrollTop = document.querySelector('.messages-area').scrollHeight");
+        }
+        catch { /* component may be disposed */ }
     }
 
     // ============================================================

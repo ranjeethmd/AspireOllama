@@ -230,7 +230,7 @@ public static class McpOpenApiGenerator
 
                 writer.Flush();
                 stream.Position = 0;
-             
+
 
                 return Results.Stream(stream, MediaTypeNames.Application.Json);
             }).WithName("GetMcpOpenApi").WithTags("MCP Tools");

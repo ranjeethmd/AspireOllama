@@ -32,6 +32,7 @@ The app is locked by running processes — stop the app before rebuilding if you
 - **Heartbeat logging suppressed** in ServiceDefaults. Only warnings logged for health checks.
 - **Terraform** in `infra/terraform/` manages Azure AD app registrations, roles, and secrets generation.
 - **Per-user rate limiting** on all A2A agents: 20 req/min per user, 429 when exceeded. Built into `AddA2AServices()`.
+- **Per-skill authorization** on A2A agents via `ISkillAuthorizationProvider`. Each agent overrides `ResolveSkill()` and `GetSkillRoles()`. Enforced on `message/send` and `message/stream` endpoints.
 - **A2A protocol interface** (`IA2AServer`) covers all 11 spec operations. Unsupported ones return 501.
 
 ## Project Structure
@@ -63,7 +64,7 @@ A2A/
   AspireOllama.A2A.ReviewerAgent/    — review_response, review_code, review_plan, provide_feedback
   AspireOllama.A2A.ResearchAgent/    — search_knowledge, get_topic_details, gather_context, suggest_topics
   AspireOllama.A2A.CodeAgent/        — execute_csharp, generate_code, analyze_code, generate_tests, refactor_code
-  AspireOllama.A2A.Shared/           — A2AServerBase, A2AAgentClient, protocol models
+  AspireOllama.A2A.Shared/           — A2AServerBase, IA2AServer, ISkillAuthorizationProvider, A2AAgentClient, protocol models
 ```
 
 ## Common Patterns
@@ -96,19 +97,27 @@ app.MapA2AEndpoints<MyServer>(AuthRoles.MyAccess);  // Maps all protocol endpoin
 
 ### A2A Protocol Architecture
 ```
-IA2AServer (interface — full A2A spec, 11 operations)
-  └── A2AServerBase (abstract — implements core, virtual NotSupported for extended)
-       ├── PlannerA2AServer
-       ├── ReviewerA2AServer
-       ├── ResearchA2AServer
-       ├── CodeA2AServer
-       └── CoordinatorA2AServer
+IA2AServer (interface — pure A2A protocol spec, 11 operations)
+ISkillAuthorizationProvider (interface — per-skill role checks)
+  └── A2AServerBase (abstract — implements both, virtual defaults)
+       ├── PlannerA2AServer       (overrides ResolveSkill + GetSkillRoles)
+       ├── ReviewerA2AServer      (overrides ResolveSkill + GetSkillRoles)
+       ├── ResearchA2AServer      (overrides ResolveSkill + GetSkillRoles)
+       ├── CodeA2AServer          (overrides ResolveSkill + GetSkillRoles)
+       └── CoordinatorA2AServer   (overrides ResolveSkill + GetSkillRoles)
 
 Extensions (A2A.Shared):
   AddA2AServices()       — known agents, HTTP clients, rate limiting
   AddA2AServer<T>()      — registers server singleton
-  MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting, 501 for unsupported
+  MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting, skill auth, 501 for unsupported
 ```
+
+### Per-Skill Authorization
+Each agent implements `ISkillAuthorizationProvider` (via `A2AServerBase`):
+- `ResolveSkill(message)` — inspects message text, returns skill ID (e.g. "create_plan", "review_code")
+- `GetSkillRoles()` — returns skill-to-role mapping from `AuthRoles.A2ASkillRoles`
+
+`MapA2AEndpoints` checks `ISkillAuthorizationProvider` on `message/send` and `message/stream` via `IsSkillForbidden()` — a single boolean expression using `is` pattern matching. Returns 403 Forbid if the user lacks the required skill role. Skill roles are defined in `AuthScopes.cs` per agent. Agents use switch expressions in `ResolveSkill()` for multi-case routing, plain `if` for simple cases.
 
 ### A2A Rate Limiting
 Per-user rate limiting on all A2A endpoints (except agent card discovery).
@@ -228,3 +237,4 @@ The base class `A2AServerBase.AddTextArtifact` signature is `(task, text, name)`
 - **Resilience handler `MaxRetryAttempts`**: minimum is 1, not 0. Setting 0 throws `OptionsValidationException`.
 - **SerpAPI for web search** (not Google Custom Search which requires billing). Key in `appsettings.Secrets.json`.
 - **Markdig** renders Final Result as HTML. Uses default pipeline (no `UseAdvancedExtensions` — removed in Markdig 1.1.1).
+- **Control flow style**: Use switch expressions for multi-case branching (3+ cases). Use plain `if` for single conditions. Do not use switch/enum when a simple boolean check suffices.

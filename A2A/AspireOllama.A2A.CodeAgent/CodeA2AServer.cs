@@ -1,8 +1,8 @@
 using AspireOllama.A2A.CodeAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
+using AspireOllama.ServiceDefaults.Authentication;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
 using System.Text.Json;
@@ -11,7 +11,7 @@ namespace AspireOllama.A2A.CodeAgent;
 
 public class CodeA2AServer : A2AServerBase
 {
-   // private readonly IServiceProvider _serviceProvider;
+    // private readonly IServiceProvider _serviceProvider;
     private readonly KnownAgentsOptions _knownAgents;
     private IOllamaApiClient? _ollamaClient;
     private static ScriptOptions? _scriptOptions;
@@ -20,7 +20,7 @@ public class CodeA2AServer : A2AServerBase
         .WithReferences(typeof(object).Assembly, typeof(Enumerable).Assembly)
         .WithImports("System", "System.Linq", "System.Collections.Generic", "System.Text");
 
-    private  Lazy<IOllamaApiClient> _ollama;
+    private Lazy<IOllamaApiClient> _ollama;
 
     public CodeA2AServer(
         Lazy<IOllamaApiClient> ollamaClient,
@@ -85,6 +85,22 @@ public class CodeA2AServer : A2AServerBase
             }
         ]
     };
+
+    public override string? ResolveSkill(A2AMessage message)
+    {
+        var text = GetTextFromMessage(message).ToLowerInvariant();
+        return text switch
+        {
+            _ when text.Contains("execute") || text.Contains("run") => "execute_csharp",
+            _ when text.Contains("test") => "generate_tests",
+            _ when text.Contains("analyze") => "analyze_code",
+            _ when text.Contains("refactor") => "refactor_code",
+            _ => "generate_code"
+        };
+    }
+
+    public override IReadOnlyDictionary<string, string> GetSkillRoles()
+        => AuthRoles.A2ASkillRoles.GetValueOrDefault("code") ?? new Dictionary<string, string>();
 
     public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
     {

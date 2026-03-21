@@ -650,6 +650,88 @@ AspireOllama is a distributed AI chat application with the following key capabil
     planning to select skills and route tasks.
 ```
 
+### A2A Class Hierarchy
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        A2A CLASS HIERARCHY                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    IA2AServer (interface)                ISkillAuthorizationProvider (interface)
+    │  Pure A2A protocol spec             │  ResolveSkill(message) → skillId
+    │  11 JSON-RPC operations             │  GetSkillRoles() → { skillId: role }
+    │                                     │
+    └────────────────┬────────────────────┘
+                     │ implements both
+                     ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                     A2AServerBase (abstract)                        │
+    │                                                                     │
+    │  Implements:  task CRUD, message handling, helper methods           │
+    │  Virtual:     ResolveSkill() → null, GetSkillRoles() → empty       │
+    │  Virtual:     streaming, push notifications → NotSupportedException │
+    │  Abstract:    GetAgentCard(), ProcessMessageAsync()                 │
+    └────────────────────────────────┬────────────────────────────────────┘
+                                     │ extends
+          ┌──────────────┬───────────┼───────────┬──────────────┐
+          ▼              ▼           ▼           ▼              ▼
+    ┌───────────┐  ┌───────────┐  ┌─────────┐  ┌───────────┐  ┌───────────┐
+    │ Planner   │  │ Reviewer  │  │Research │  │   Code    │  │Coordinator│
+    │ A2AServer │  │ A2AServer │  │A2AServer│  │ A2AServer │  │ A2AServer │
+    │           │  │           │  │         │  │           │  │           │
+    │ Overrides:│  │ Overrides:│  │Overrides│  │ Overrides:│  │ Overrides:│
+    │ Resolve   │  │ Resolve   │  │Resolve  │  │ Resolve   │  │ Resolve   │
+    │  Skill    │  │  Skill    │  │ Skill   │  │  Skill    │  │  Skill    │
+    │ GetSkill  │  │ GetSkill  │  │GetSkill │  │ GetSkill  │  │ GetSkill  │
+    │  Roles    │  │  Roles    │  │ Roles   │  │  Roles    │  │  Roles    │
+    │ Process   │  │ Process   │  │Process  │  │ Process   │  │ Process   │
+    │  Message  │  │  Message  │  │ Message │  │  Message  │  │  Message  │
+    └───────────┘  └───────────┘  └─────────┘  └───────────┘  └───────────┘
+```
+
+### Per-Skill Authorization Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      A2A PER-SKILL AUTHORIZATION                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    POST /a2a/message:send  (or message:stream)
+          │
+          ▼
+    ┌──────────────────────────────┐
+    │ JWT Bearer + accessRole      │  ← endpoint-level auth
+    └──────────────┬───────────────┘
+                   │
+                   ▼
+    ┌──────────────────────────────┐
+    │ IsSkillForbidden(server,     │  ← pattern match: server is
+    │   httpContext, message)       │    ISkillAuthorizationProvider?
+    │                              │
+    │ server is ISkillAuthProvider? │─── No ──► Allow
+    │      │ Yes                   │
+    │      ▼                       │
+    │ ResolveSkill(message)        │  ← switch expression on text
+    │ → e.g. "review_code"        │
+    │      │                       │
+    │      ▼                       │
+    │ GetSkillRoles()["review_code"]│
+    │ → "A2A.Reviewer.ReviewCode"  │
+    │      │                       │
+    │      ▼                       │
+    │ User.IsInRole(role)?         │
+    │   Yes → Allow                │
+    │   No  → 403 Forbid           │
+    └──────────────────────────────┘
+
+    Extensions (A2A.Shared):
+      AddA2AServices()       — known agents, HTTP clients, rate limiting
+      AddA2AServer<T>()      — registers server singleton (constraint: IA2AServer)
+      MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting,
+                               per-skill auth via ISkillAuthorizationProvider,
+                               501 for unsupported operations
+```
+
 ### Agent Card Structure
 
 ```

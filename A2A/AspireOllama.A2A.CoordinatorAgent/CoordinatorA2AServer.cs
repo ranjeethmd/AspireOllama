@@ -1,8 +1,9 @@
+using AspireOllama.A2A.Shared;
+using AspireOllama.ServiceDefaults.Authentication;
+using OllamaSharp;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using AspireOllama.A2A.Shared;
-using OllamaSharp;
 
 namespace AspireOllama.A2A.CoordinatorAgent;
 
@@ -45,6 +46,11 @@ public class CoordinatorA2AServer(
             }
         ]
     };
+
+    public override string? ResolveSkill(A2AMessage message) => "orchestrate_task";
+
+    public override IReadOnlyDictionary<string, string> GetSkillRoles()
+        => AuthRoles.A2ASkillRoles.GetValueOrDefault("coordinator") ?? new Dictionary<string, string>();
 
     public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
     {

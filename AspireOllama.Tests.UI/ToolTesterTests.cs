@@ -1,4 +1,3 @@
-using Microsoft.Playwright;
 using Microsoft.Playwright.NUnit;
 
 namespace AspireOllama.Tests.UI;

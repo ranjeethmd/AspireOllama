@@ -1,10 +1,9 @@
 using AspireOllama.ApiService.Services.AI;
-using AspireOllama.ApiService.Services.Document;
 using AspireOllama.ApiService.Services.Message;
 using AspireOllama.ApiService.Services.Session;
-using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
 

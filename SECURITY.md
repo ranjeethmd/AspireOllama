@@ -132,6 +132,66 @@ The Web app uses a delegated scope `access_as_user` on the API app to perform OB
 - Backend services validate with `RoleClaimType = "roles"` and `Roles("Api.Chat.Write")` on endpoints.
 - The Web frontend does NOT check roles from the ID token — it calls `GET /api/me` to read roles from the access token.
 
+### Per-Skill Authorization (A2A Agents)
+
+A2A agents enforce fine-grained, per-skill role checks on `message/send` and `message/stream` endpoints via the `ISkillAuthorizationProvider` interface.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     A2A PER-SKILL AUTHORIZATION                      │
+└──────────────────────────────────────────────────────────────────────┘
+
+  Incoming Request (POST /a2a/message:send)
+        │
+        ▼
+  ┌─────────────────────────────────┐
+  │ 1. JWT Bearer validation        │  ← accessRole on endpoint
+  │    (access token + roles claim) │
+  └──────────────┬──────────────────┘
+                 │
+                 ▼
+  ┌─────────────────────────────────┐
+  │ 2. IsSkillForbidden()           │  ← checks ISkillAuthorizationProvider
+  │                                 │
+  │  server is ISkillAuthProvider?  │──── No ──► Allow (skip skill check)
+  │         │ Yes                   │
+  │         ▼                       │
+  │  ResolveSkill(message)          │  ← inspects message text
+  │  → skill ID (e.g. "review_code")│
+  │         │                       │
+  │         ▼                       │
+  │  GetSkillRoles()[skillId]       │  ← looks up required role
+  │  → "A2A.Reviewer.ReviewCode"   │
+  │         │                       │
+  │         ▼                       │
+  │  User.IsInRole(requiredRole)?   │
+  │    Yes → Allow                  │
+  │    No  → 403 Forbid             │
+  └─────────────────────────────────┘
+```
+
+**Skill-to-Role Mapping** (defined in `AuthScopes.cs`):
+
+| Agent | Skill | Required Role |
+|-------|-------|---------------|
+| Coordinator | `orchestrate_task` | `A2A.Coordinator.Orchestrate` |
+| Planner | `create_plan` | `A2A.Planner.CreatePlan` |
+| Planner | `assess_complexity` | `A2A.Planner.AssessComplexity` |
+| Planner | `suggest_agents` | `A2A.Planner.SuggestAgents` |
+| Reviewer | `review_response` | `A2A.Reviewer.ReviewResponse` |
+| Reviewer | `review_code` | `A2A.Reviewer.ReviewCode` |
+| Reviewer | `review_plan` | `A2A.Reviewer.ReviewPlan` |
+| Reviewer | `provide_feedback` | `A2A.Reviewer.ProvideFeedback` |
+| Research | `search_knowledge` | `A2A.Research.SearchKnowledge` |
+| Research | `get_topic_details` | `A2A.Research.GetTopicDetails` |
+| Research | `gather_context` | `A2A.Research.GatherContext` |
+| Research | `suggest_topics` | `A2A.Research.SuggestTopics` |
+| Code | `execute_csharp` | `A2A.Code.ExecuteCsharp` |
+| Code | `generate_code` | `A2A.Code.GenerateCode` |
+| Code | `analyze_code` | `A2A.Code.AnalyzeCode` |
+| Code | `generate_tests` | `A2A.Code.GenerateTests` |
+| Code | `refactor_code` | `A2A.Code.RefactorCode` |
+
 ### OBO Token Flow
 
 When the Web frontend calls a backend service:
@@ -449,6 +509,7 @@ For local development without full identity provider setup:
 - [x] Web search tool — SerpAPI integration for real-time Google search (key in appsettings.Secrets.json)
 - [ ] Set up audit logging
 - [x] Per-user rate limiting — A2A agents: 20 req/min per user (oid claim), 429 when exceeded, built into A2AHostExtensions
+- [x] Per-skill authorization — `ISkillAuthorizationProvider` interface, each agent maps messages to skills and skill roles from `AuthScopes.A2ASkillRoles`, enforced on `message/send` and `message/stream`, returns 403 Forbid
 - [ ] Test OBO flow end-to-end
 - [ ] Verify tool scope restrictions
 - [ ] Deploy to Kubernetes (`k8s/base/`) with nginx Ingress replacing YARP gateway

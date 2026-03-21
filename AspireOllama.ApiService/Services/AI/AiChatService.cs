@@ -2,7 +2,6 @@ using AspireOllama.ApiService.Services.Document;
 using AspireOllama.ApiService.Services.Tools;
 using AspireOllama.Shared;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics;
 
 namespace AspireOllama.ApiService.Services.AI;

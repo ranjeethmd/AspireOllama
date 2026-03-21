@@ -1,8 +1,8 @@
 using AspireOllama.ApiService.Services.Session;
-using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
 using System.Security.Claims;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
 

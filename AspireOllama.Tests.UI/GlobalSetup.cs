@@ -1,5 +1,3 @@
-using Microsoft.Playwright;
-
 namespace AspireOllama.Tests.UI;
 
 [SetUpFixture]

@@ -1,10 +1,10 @@
-using System.Security.Claims;
 using AspireOllama.Shared;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Identity.Abstractions;
 using Microsoft.Identity.Client;
 using Microsoft.Identity.Web;
+using System.Security.Claims;
 
 namespace AspireOllama.Web;
 

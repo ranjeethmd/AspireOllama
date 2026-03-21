@@ -1,10 +1,8 @@
 using AspireOllama.A2A.ResearchAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using AspireOllama.ServiceDefaults.Authentication;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
-using OllamaSharp.AsyncEnumerableExtensions;
 using System.Text.Json;
 
 namespace AspireOllama.A2A.ResearchAgent;
@@ -78,6 +76,21 @@ public class ResearchA2AServer : A2AServerBase
             }
         ]
     };
+
+    public override string? ResolveSkill(A2AMessage message)
+    {
+        var text = GetTextFromMessage(message).ToLowerInvariant();
+        return text switch
+        {
+            _ when text.Contains("detail") || text.Contains("explain") => "get_topic_details",
+            _ when text.Contains("context") || text.Contains("gather") => "gather_context",
+            _ when text.Contains("suggest") || text.Contains("related") => "suggest_topics",
+            _ => "search_knowledge"
+        };
+    }
+
+    public override IReadOnlyDictionary<string, string> GetSkillRoles()
+        => AuthRoles.A2ASkillRoles.GetValueOrDefault("research") ?? new Dictionary<string, string>();
 
     public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
     {

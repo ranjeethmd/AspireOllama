@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 
 namespace AspireOllama.A2A.Shared;
 
@@ -7,7 +7,7 @@ namespace AspireOllama.A2A.Shared;
 /// Base class for A2A protocol server implementation.
 /// Provides task management and common A2A functionality.
 /// </summary>
-public abstract class A2AServerBase : IA2AServer
+public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
 {
     protected readonly ConcurrentDictionary<string, A2ATask> _tasks = new();
     protected readonly ILogger _logger;
@@ -28,6 +28,18 @@ public abstract class A2AServerBase : IA2AServer
     /// Process an incoming message and return a task.
     /// </summary>
     public abstract Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct);
+
+    /// <summary>
+    /// Resolves which skill handles a message. Override in each agent to inspect message text.
+    /// Returns null if no specific skill — access role check still applies.
+    /// </summary>
+    public virtual string? ResolveSkill(A2AMessage message) => null;
+
+    /// <summary>
+    /// Returns skill-to-role mapping. Override to provide per-skill authorization.
+    /// </summary>
+    public virtual IReadOnlyDictionary<string, string> GetSkillRoles()
+        => new Dictionary<string, string>();
 
     /// <summary>
     /// Handle a SendMessage request.

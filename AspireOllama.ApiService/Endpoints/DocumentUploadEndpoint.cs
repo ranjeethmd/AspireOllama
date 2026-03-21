@@ -1,7 +1,7 @@
 using AspireOllama.ApiService.Services.Document;
-using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using AspireOllama.Shared;
 using FastEndpoints;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
 

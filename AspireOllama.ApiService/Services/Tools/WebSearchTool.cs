@@ -1,9 +1,8 @@
-using System.ComponentModel;
-using System.Net.Http.Json;
-using System.Text.Json.Serialization;
-using System.Web;
 using AspireOllama.Shared;
 using Microsoft.Extensions.Options;
+using System.ComponentModel;
+using System.Text.Json.Serialization;
+using System.Web;
 
 namespace AspireOllama.ApiService.Services.Tools;
 

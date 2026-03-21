@@ -1,10 +1,8 @@
 using AspireOllama.A2A.ReviewerAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using AspireOllama.ServiceDefaults.Authentication;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
-using OllamaSharp.AsyncEnumerableExtensions;
 using System.Text.Json;
 
 namespace AspireOllama.A2A.ReviewerAgent;
@@ -68,6 +66,21 @@ public class ReviewerA2AServer : A2AServerBase
             }
         ]
     };
+
+    public override string? ResolveSkill(A2AMessage message)
+    {
+        var text = GetTextFromMessage(message).ToLowerInvariant();
+        return text switch
+        {
+            _ when text.Contains("code") => "review_code",
+            _ when text.Contains("plan") => "review_plan",
+            _ when text.Contains("feedback") || text.Contains("agent") => "provide_feedback",
+            _ => "review_response"
+        };
+    }
+
+    public override IReadOnlyDictionary<string, string> GetSkillRoles()
+        => AuthRoles.A2ASkillRoles.GetValueOrDefault("reviewer") ?? new Dictionary<string, string>();
 
     public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
     {

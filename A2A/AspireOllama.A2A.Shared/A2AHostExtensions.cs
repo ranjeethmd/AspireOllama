@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AspireOllama.A2A.Shared;
@@ -52,6 +51,7 @@ public static class A2AHostExtensions
     /// Maps all A2A protocol endpoints per the specification.
     /// Agent card is always unauthenticated (discovery).
     /// All other endpoints require accessRole if provided.
+    /// Per-skill authorization via <see cref="ISkillAuthorizationProvider"/> when the server implements it.
     /// Unsupported operations return 501 Not Implemented.
     /// </summary>
     public static WebApplication MapA2AEndpoints<TServer>(this WebApplication app, string? accessRole = null)
@@ -67,13 +67,23 @@ public static class A2AHostExtensions
         // ── Discovery (unauthenticated) ──
         app.MapGet("/.well-known/agent.json", () => server.GetAgentCard());
 
-        // ── Core: message/send (3.1.1) ──
-        Secure(app.MapPost("/a2a/message:send", async (SendMessageRequest request, CancellationToken ct) =>
-            await server.HandleSendMessageAsync(request, ct)), auth);
+        // ── Core: message/send (3.1.1) — with per-skill authorization ──
+        Secure(app.MapPost("/a2a/message:send", async (HttpContext httpContext, SendMessageRequest request, CancellationToken ct) =>
+        {
+            if (IsSkillForbidden(server, httpContext, request.Message))
+                return Results.Forbid();
 
-        // ── Core: message/stream (3.1.2) ──
-        Secure(app.MapPost("/a2a/message:stream", (SendMessageRequest request, CancellationToken ct) =>
-            SafeCall(() => Results.Ok(server.HandleSendMessageStreamAsync(request, ct)))), auth);
+            return Results.Ok(await server.HandleSendMessageAsync(request, ct));
+        }), auth);
+
+        // ── Core: message/stream (3.1.2) — with per-skill authorization ──
+        Secure(app.MapPost("/a2a/message:stream", (HttpContext httpContext, SendMessageRequest request, CancellationToken ct) =>
+        {
+            if (IsSkillForbidden(server, httpContext, request.Message))
+                return Results.Forbid();
+
+            return SafeCall(() => Results.Ok(server.HandleSendMessageStreamAsync(request, ct)));
+        }), auth);
 
         // ── Core: tasks/get (3.1.3) ──
         Secure(app.MapGet("/a2a/tasks/{taskId}", (string taskId) =>
@@ -127,6 +137,12 @@ public static class A2AHostExtensions
             endpoint.RequireRateLimiting(A2ARateLimitExtensions.PolicyName);
         }
     }
+
+    private static bool IsSkillForbidden(IA2AServer server, HttpContext httpContext, A2AMessage message) =>
+        server is ISkillAuthorizationProvider provider
+        && provider.ResolveSkill(message) is { } skillId
+        && provider.GetSkillRoles().TryGetValue(skillId, out var requiredRole)
+        && !httpContext.User.IsInRole(requiredRole);
 
     private static IResult SafeCall(Func<IResult> action)
     {

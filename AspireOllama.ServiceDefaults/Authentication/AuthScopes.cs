@@ -28,7 +28,7 @@ public static class AuthRoles
     public const string A2APlannerCreatePlan = "A2A.Planner.CreatePlan";
     public const string A2APlannerAssessComplexity = "A2A.Planner.AssessComplexity";
     public const string A2APlannerSuggestAgents = "A2A.Planner.SuggestAgents";
-    public const string A2APlannerOrchestrateWorkflow = "A2A.Planner.OrchestrateWorkflow";
+
 
     // ── Reviewer Agent ──
     public const string A2AReviewerAccess = "A2A.Reviewer.Access";
@@ -80,7 +80,7 @@ public static class AuthRoles
             ["create_plan"] = A2APlannerCreatePlan,
             ["assess_complexity"] = A2APlannerAssessComplexity,
             ["suggest_agents"] = A2APlannerSuggestAgents,
-            ["orchestrate_workflow"] = A2APlannerOrchestrateWorkflow,
+
         },
         ["reviewer"] = new(StringComparer.OrdinalIgnoreCase)
         {

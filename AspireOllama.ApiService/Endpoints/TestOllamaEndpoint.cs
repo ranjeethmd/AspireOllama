@@ -1,6 +1,6 @@
-using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using FastEndpoints;
 using Microsoft.Extensions.AI;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
 

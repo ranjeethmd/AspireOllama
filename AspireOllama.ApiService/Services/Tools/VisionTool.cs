@@ -1,8 +1,7 @@
-using System.ComponentModel;
 using AspireOllama.ApiService.Services.Message;
 using AspireOllama.Shared;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
+using System.ComponentModel;
 
 namespace AspireOllama.ApiService.Services.Tools;
 

@@ -1,6 +1,6 @@
-using System.ComponentModel;
 using AspireOllama.Shared;
 using Microsoft.Extensions.Options;
+using System.ComponentModel;
 
 namespace AspireOllama.ApiService.Services.Tools;
 

@@ -1,5 +1,5 @@
-using System.ComponentModel;
 using AspireOllama.ApiService.Services.Rag;
+using System.ComponentModel;
 
 namespace AspireOllama.ApiService.Services.Tools;
 

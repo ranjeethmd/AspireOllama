@@ -1,7 +1,6 @@
-using System.Diagnostics;
-using System.Net.Http.Json;
-using System.Text.Json;
 using AspireOllama.Shared;
+using System.Diagnostics;
+using System.Text.Json;
 
 namespace AspireOllama.ApiService.Services.A2A;
 

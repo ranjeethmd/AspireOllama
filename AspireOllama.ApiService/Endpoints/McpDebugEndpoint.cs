@@ -1,6 +1,6 @@
 using AspireOllama.ApiService.Services.Mcp;
-using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 using FastEndpoints;
+using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
 

@@ -1,11 +1,8 @@
-using System.Diagnostics;
 using AspireOllama.A2A.PlannerAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using AspireOllama.ServiceDefaults.Authentication;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
-using OllamaSharp.AsyncEnumerableExtensions;
 using System.Text.Json;
 
 namespace AspireOllama.A2A.PlannerAgent;
@@ -61,6 +58,21 @@ public class PlannerA2AServer : A2AServerBase
             }
         ]
     };
+
+    public override string? ResolveSkill(A2AMessage message)
+    {
+        var text = GetTextFromMessage(message).ToLowerInvariant();
+
+        return text switch
+        {
+            _ when text.Contains("assess") || text.Contains("complexity") => "assess_complexity",
+            _ when text.Contains("suggest") && text.Contains("agent") => "suggest_agents",
+            _ => "create_plan"
+        };
+    }
+
+    public override IReadOnlyDictionary<string, string> GetSkillRoles()
+        => AuthRoles.A2ASkillRoles.GetValueOrDefault("planner") ?? new Dictionary<string, string>();
 
     public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
     {
