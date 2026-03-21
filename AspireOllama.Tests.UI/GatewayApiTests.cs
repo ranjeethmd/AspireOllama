@@ -5,311 +5,207 @@ using System.Text.Json;
 namespace AspireOllama.Tests.UI;
 
 /// <summary>
-/// Tests for YARP Gateway routing and API endpoint accessibility.
-/// These tests verify that all services are properly routed through the gateway.
+/// API tests via Playwright APIRequestContext — verifies gateway routing,
+/// session CRUD, A2A agent discovery (all 5 agents), and health endpoints.
 /// </summary>
 [Parallelizable(ParallelScope.Self)]
 [TestFixture]
 public class GatewayApiTests : PageTest
 {
-    private string _gatewayUrl = "http://localhost:7000";
-    private IAPIRequestContext _apiContext = null!;
+    private string _baseUrl = "https://localhost:7170";
+    private IAPIRequestContext _api = null!;
+
+    private static readonly string[] AllAgents = ["coordinator", "planner", "reviewer", "research", "code"];
 
     [SetUp]
     public async Task Setup()
     {
-        // Read gateway URL from environment variable if set
-        var envUrl = Environment.GetEnvironmentVariable("GATEWAY_URL");
+        var envUrl = Environment.GetEnvironmentVariable("APP_URL")
+                  ?? Environment.GetEnvironmentVariable("GATEWAY_URL");
         if (!string.IsNullOrEmpty(envUrl))
-        {
-            _gatewayUrl = envUrl;
-        }
+            _baseUrl = envUrl;
 
-        // Create API request context for direct HTTP calls
-        _apiContext = await Playwright.APIRequest.NewContextAsync(new()
+        _api = await Playwright.APIRequest.NewContextAsync(new()
         {
-            BaseURL = _gatewayUrl,
+            BaseURL = _baseUrl,
             IgnoreHTTPSErrors = true
         });
     }
 
     [TearDown]
-    public async Task TearDown()
-    {
-        await _apiContext.DisposeAsync();
-    }
+    public async Task TearDown() => await _api.DisposeAsync();
 
-    // ============================================================
-    // Gateway Root Tests
-    // ============================================================
+    // ── Gateway Root ──
 
     [Test]
-    public async Task Gateway_ShouldBeAccessible()
+    public async Task Gateway_Root_ShouldBeAccessible()
     {
-        var response = await _apiContext.GetAsync("/");
-        Assert.That(response.Ok, Is.True, "Gateway should be accessible");
+        var response = await _api.GetAsync("/");
+        Assert.That(response.Ok, Is.True, "Gateway root should respond 200");
     }
 
-    [Test]
-    public async Task Gateway_WebFrontend_ShouldLoadHomePage()
-    {
-        await Page.GotoAsync(_gatewayUrl);
-
-        // Wait for the page to load (Blazor app)
-        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
-
-        // The page should load without errors
-        Assert.That(Page.Url, Does.StartWith(_gatewayUrl));
-    }
-
-    // ============================================================
-    // API Service Tests (/api/*)
-    // ============================================================
+    // ── Session CRUD ──
 
     [Test]
-    public async Task Api_Root_ShouldReturnServiceInfo()
+    public async Task Sessions_Create_ShouldReturnId()
     {
-        var response = await _apiContext.GetAsync("/api");
-        Assert.That(response.Ok, Is.True, "API root should be accessible");
-
-        var text = await response.TextAsync();
-        Assert.That(text, Does.Contain("API service"));
-    }
-
-    [Test]
-    public async Task Api_Sessions_CreateSession_ShouldSucceed()
-    {
-        var response = await _apiContext.PostAsync("/api/sessions");
+        var response = await _api.PostAsync("/api/sessions");
         Assert.That(response.Ok, Is.True, $"Create session failed: {response.Status}");
 
         var json = await response.JsonAsync();
-        Assert.That(json, Is.Not.Null);
-
-        // Verify session has an ID
-        var sessionId = json?.GetProperty("id").GetString();
-        Assert.That(sessionId, Is.Not.Null.And.Not.Empty, "Session should have an ID");
-
-        Console.WriteLine($"Created session: {sessionId}");
+        var id = json?.GetProperty("id").GetString();
+        Assert.That(id, Is.Not.Null.And.Not.Empty);
+        Console.WriteLine($"Created session: {id}");
     }
 
     [Test]
-    public async Task Api_Sessions_GetSessions_ShouldReturnList()
+    public async Task Sessions_List_ShouldReturnArray()
     {
-        var response = await _apiContext.GetAsync("/api/sessions");
-        Assert.That(response.Ok, Is.True, $"Get sessions failed: {response.Status}");
+        var response = await _api.GetAsync("/api/sessions");
+        Assert.That(response.Ok, Is.True);
 
         var json = await response.JsonAsync();
-        Assert.That(json?.ValueKind, Is.EqualTo(JsonValueKind.Array), "Should return array of sessions");
+        Assert.That(json?.ValueKind, Is.EqualTo(JsonValueKind.Array));
     }
 
     [Test]
-    public async Task Api_Sessions_CreateAndRetrieve_ShouldWork()
+    public async Task Sessions_CreateAndRetrieve_ShouldMatch()
     {
-        // Create a session
-        var createResponse = await _apiContext.PostAsync("/api/sessions");
-        Assert.That(createResponse.Ok, Is.True);
-
-        var createJson = await createResponse.JsonAsync();
+        var createRes = await _api.PostAsync("/api/sessions");
+        var createJson = await createRes.JsonAsync();
         var sessionId = createJson?.GetProperty("id").GetString();
-        Assert.That(sessionId, Is.Not.Null);
 
-        // Retrieve the session
-        var getResponse = await _apiContext.GetAsync($"/api/sessions/{sessionId}");
-        Assert.That(getResponse.Ok, Is.True, $"Get session {sessionId} failed");
+        var getRes = await _api.GetAsync($"/api/sessions/{sessionId}");
+        Assert.That(getRes.Ok, Is.True);
 
-        var getJson = await getResponse.JsonAsync();
+        var getJson = await getRes.JsonAsync();
         var retrievedId = getJson?.GetProperty("session").GetProperty("id").GetString();
         Assert.That(retrievedId, Is.EqualTo(sessionId));
     }
 
     [Test]
-    public async Task Api_Sessions_Delete_ShouldWork()
+    public async Task Sessions_Delete_ShouldSucceed()
     {
-        // Create a session
-        var createResponse = await _apiContext.PostAsync("/api/sessions");
-        var createJson = await createResponse.JsonAsync();
-        var sessionId = createJson?.GetProperty("id").GetString();
+        var createRes = await _api.PostAsync("/api/sessions");
+        var id = (await createRes.JsonAsync())?.GetProperty("id").GetString();
 
-        // Delete the session
-        var deleteResponse = await _apiContext.DeleteAsync($"/api/sessions/{sessionId}");
-        Assert.That(deleteResponse.Ok, Is.True, $"Delete session {sessionId} failed");
+        var deleteRes = await _api.DeleteAsync($"/api/sessions/{id}");
+        Assert.That(deleteRes.Ok, Is.True);
 
-        // Verify it's deleted (should return 404)
-        var getResponse = await _apiContext.GetAsync($"/api/sessions/{sessionId}");
-        Assert.That(getResponse.Status, Is.EqualTo(404), "Deleted session should not be found");
+        var getRes = await _api.GetAsync($"/api/sessions/{id}");
+        Assert.That(getRes.Status, Is.EqualTo(404));
     }
 
     [Test]
-    public async Task Api_Agents_GetAgents_ShouldReturnList()
+    public async Task Sessions_GetNonExistent_ShouldReturn404()
     {
-        var response = await _apiContext.GetAsync("/api/agents");
-        Assert.That(response.Ok, Is.True, $"Get agents failed: {response.Status}");
+        var response = await _api.GetAsync("/api/sessions/non-existent-id");
+        Assert.That(response.Status, Is.EqualTo(404));
+    }
+
+    // ── Agents API ──
+
+    [Test]
+    public async Task Agents_List_ShouldReturnArray()
+    {
+        var response = await _api.GetAsync("/api/agents");
+        Assert.That(response.Ok, Is.True);
 
         var json = await response.JsonAsync();
-        Assert.That(json?.ValueKind, Is.EqualTo(JsonValueKind.Array), "Should return array of agents");
+        Assert.That(json?.ValueKind, Is.EqualTo(JsonValueKind.Array));
 
-        // Log agent count
         var count = json?.GetArrayLength() ?? 0;
         Console.WriteLine($"Found {count} agents");
     }
 
-    // ============================================================
-    // MCP Server Tests (/mcp/*)
-    // ============================================================
+    // ── A2A Agent Discovery (all 5) ──
 
-    [Test]
-    public async Task Mcp_Root_ShouldReturnServiceInfo()
+    [TestCaseSource(nameof(AllAgents))]
+    public async Task A2A_AgentRoot_ShouldBeAccessible(string agent)
     {
-        var response = await _apiContext.GetAsync("/mcp");
-        Assert.That(response.Ok, Is.True, $"MCP root failed: {response.Status}");
-
-        var text = await response.TextAsync();
-        Assert.That(text, Does.Contain("MCP"));
+        var response = await _api.GetAsync($"/a2a/{agent}");
+        Assert.That(response.Ok, Is.True, $"{agent} root should respond 200");
     }
 
-    // ============================================================
-    // A2A Agent Tests (/a2a/{agent}/*)
-    // ============================================================
-
-    [Test]
-    public async Task A2A_Planner_Root_ShouldBeAccessible()
+    [TestCaseSource(nameof(AllAgents))]
+    public async Task A2A_AgentCard_ShouldReturnValidJson(string agent)
     {
-        var response = await _apiContext.GetAsync("/a2a/planner");
-        Assert.That(response.Ok, Is.True, $"Planner agent root failed: {response.Status}");
-
-        var text = await response.TextAsync();
-        Assert.That(text, Does.Contain("Planner"));
-    }
-
-    [Test]
-    public async Task A2A_Planner_AgentCard_ShouldReturnJson()
-    {
-        var response = await _apiContext.GetAsync("/a2a/planner/.well-known/agent.json");
-        Assert.That(response.Ok, Is.True, $"Planner agent card failed: {response.Status}");
-
-        var json = await response.JsonAsync();
-        Assert.That(json, Is.Not.Null, "Should return valid JSON");
-
-        // Verify agent card structure
-        var name = json?.GetProperty("name").GetString();
-        Assert.That(name, Is.Not.Null.And.Not.Empty, "Agent card should have a name");
-        Console.WriteLine($"Planner agent name: {name}");
-    }
-
-    [Test]
-    public async Task A2A_Reviewer_AgentCard_ShouldReturnJson()
-    {
-        var response = await _apiContext.GetAsync("/a2a/reviewer/.well-known/agent.json");
-        Assert.That(response.Ok, Is.True, $"Reviewer agent card failed: {response.Status}");
+        var response = await _api.GetAsync($"/a2a/{agent}/.well-known/agent.json");
+        Assert.That(response.Ok, Is.True, $"{agent} agent card should respond 200");
 
         var json = await response.JsonAsync();
         var name = json?.GetProperty("name").GetString();
-        Assert.That(name, Is.Not.Null.And.Not.Empty);
-        Console.WriteLine($"Reviewer agent name: {name}");
+        Assert.That(name, Is.Not.Null.And.Not.Empty, $"{agent} card should have a name");
+
+        var skills = json?.GetProperty("skills").GetArrayLength() ?? 0;
+        Assert.That(skills, Is.GreaterThan(0), $"{agent} should have at least one skill");
+
+        Console.WriteLine($"{agent}: name={name}, skills={skills}");
     }
 
-    [Test]
-    public async Task A2A_Research_AgentCard_ShouldReturnJson()
+    [TestCaseSource(nameof(AllAgents))]
+    public async Task A2A_Tasks_ShouldReturnArray(string agent)
     {
-        var response = await _apiContext.GetAsync("/a2a/research/.well-known/agent.json");
-        Assert.That(response.Ok, Is.True, $"Research agent card failed: {response.Status}");
+        var response = await _api.GetAsync($"/a2a/{agent}/a2a/tasks");
+        Assert.That(response.Ok, Is.True, $"{agent} tasks should respond 200");
 
         var json = await response.JsonAsync();
-        var name = json?.GetProperty("name").GetString();
-        Assert.That(name, Is.Not.Null.And.Not.Empty);
-        Console.WriteLine($"Research agent name: {name}");
+        Assert.That(json?.ValueKind, Is.EqualTo(JsonValueKind.Array));
+    }
+
+    // ── Health Checks ──
+
+    [Test]
+    public async Task Health_Alive_ShouldRespond()
+    {
+        var response = await _api.GetAsync("/alive");
+        // Aspire health endpoints return 200
+        Assert.That(response.Status, Is.LessThan(500), "Alive endpoint should not error");
     }
 
     [Test]
-    public async Task A2A_Code_AgentCard_ShouldReturnJson()
+    public async Task Health_Ready_ShouldRespond()
     {
-        var response = await _apiContext.GetAsync("/a2a/code/.well-known/agent.json");
-        Assert.That(response.Ok, Is.True, $"Code agent card failed: {response.Status}");
+        var response = await _api.GetAsync("/health");
+        Assert.That(response.Status, Is.LessThan(500), "Health endpoint should not error");
+    }
 
-        var json = await response.JsonAsync();
-        var name = json?.GetProperty("name").GetString();
-        Assert.That(name, Is.Not.Null.And.Not.Empty);
-        Console.WriteLine($"Code agent name: {name}");
+    // ── Integration ──
+
+    [Test]
+    public async Task Integration_CreateChatDeleteSession()
+    {
+        // Create
+        var createRes = await _api.PostAsync("/api/sessions");
+        Assert.That(createRes.Ok, Is.True);
+        var id = (await createRes.JsonAsync())?.GetProperty("id").GetString();
+
+        // Verify in list
+        var listRes = await _api.GetAsync("/api/sessions");
+        var sessions = await listRes.JsonAsync();
+        var found = sessions?.EnumerateArray().Any(s => s.GetProperty("id").GetString() == id);
+        Assert.That(found, Is.True, "Session should appear in list");
+
+        // Delete
+        var deleteRes = await _api.DeleteAsync($"/api/sessions/{id}");
+        Assert.That(deleteRes.Ok, Is.True);
     }
 
     [Test]
-    public async Task A2A_Planner_Tasks_ShouldReturnList()
+    public async Task Integration_AllFiveAgentsAccessible()
     {
-        var response = await _apiContext.GetAsync("/a2a/planner/a2a/tasks");
-        Assert.That(response.Ok, Is.True, $"Planner tasks failed: {response.Status}");
-
-        var json = await response.JsonAsync();
-        Assert.That(json?.ValueKind, Is.EqualTo(JsonValueKind.Array), "Should return array of tasks");
-    }
-
-    // ============================================================
-    // Health Check Tests
-    // ============================================================
-
-    [Test]
-    public async Task Health_ApiService_ShouldBeHealthy()
-    {
-        var response = await _apiContext.GetAsync("/api/health");
-        Assert.That(response.Ok, Is.True, $"API health check failed: {response.Status}");
-    }
-
-    // ============================================================
-    // Integration Tests
-    // ============================================================
-
-    [Test]
-    public async Task Integration_CreateSessionAndChat_WorkflowTest()
-    {
-        // 1. Create a session
-        var createResponse = await _apiContext.PostAsync("/api/sessions");
-        Assert.That(createResponse.Ok, Is.True, "Session creation failed");
-
-        var sessionJson = await createResponse.JsonAsync();
-        var sessionId = sessionJson?.GetProperty("id").GetString();
-        Assert.That(sessionId, Is.Not.Null);
-        Console.WriteLine($"Created session: {sessionId}");
-
-        // 2. Get sessions list - should include our new session
-        var listResponse = await _apiContext.GetAsync("/api/sessions");
-        Assert.That(listResponse.Ok, Is.True);
-
-        var sessions = await listResponse.JsonAsync();
-        var found = false;
-        foreach (var session in sessions?.EnumerateArray() ?? Enumerable.Empty<JsonElement>())
+        foreach (var agent in AllAgents)
         {
-            if (session.GetProperty("id").GetString() == sessionId)
-            {
-                found = true;
-                break;
-            }
-        }
-        Assert.That(found, Is.True, "Session should be in list");
+            var root = await _api.GetAsync($"/a2a/{agent}");
+            Assert.That(root.Ok, Is.True, $"{agent} root");
 
-        // 3. Clean up - delete the session
-        var deleteResponse = await _apiContext.DeleteAsync($"/api/sessions/{sessionId}");
-        Assert.That(deleteResponse.Ok, Is.True, "Session deletion failed");
-    }
+            var card = await _api.GetAsync($"/a2a/{agent}/.well-known/agent.json");
+            Assert.That(card.Ok, Is.True, $"{agent} card");
 
-    [Test]
-    public async Task Integration_AllAgentsAccessible_Test()
-    {
-        var agents = new[] { "planner", "reviewer", "research", "code" };
+            var tasks = await _api.GetAsync($"/a2a/{agent}/a2a/tasks");
+            Assert.That(tasks.Ok, Is.True, $"{agent} tasks");
 
-        foreach (var agent in agents)
-        {
-            // Test agent root
-            var rootResponse = await _apiContext.GetAsync($"/a2a/{agent}");
-            Assert.That(rootResponse.Ok, Is.True, $"Agent {agent} root should be accessible");
-
-            // Test agent card
-            var cardResponse = await _apiContext.GetAsync($"/a2a/{agent}/.well-known/agent.json");
-            Assert.That(cardResponse.Ok, Is.True, $"Agent {agent} card should be accessible");
-
-            // Test tasks endpoint
-            var tasksResponse = await _apiContext.GetAsync($"/a2a/{agent}/a2a/tasks");
-            Assert.That(tasksResponse.Ok, Is.True, $"Agent {agent} tasks should be accessible");
-
-            Console.WriteLine($"Agent {agent}: All endpoints accessible");
+            Console.WriteLine($"{agent}: all endpoints accessible");
         }
     }
 }

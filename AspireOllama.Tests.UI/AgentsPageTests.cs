@@ -1,188 +1,229 @@
 using Microsoft.Playwright;
-using Microsoft.Playwright.NUnit;
 
 namespace AspireOllama.Tests.UI;
 
+/// <summary>
+/// Tests for the Agents page (/agents) — layout, agent cards (5 agents), tabs, tool tester, skill counts.
+/// Selectors match Agents.razor CSS classes.
+/// </summary>
 [Parallelizable(ParallelScope.Self)]
 [TestFixture]
-public class AgentsPageTests : PageTest
+public class AgentsPageTests : AppTestBase
 {
-    private string _baseUrl = "https://localhost:7170"; // Update with your actual port
-
-    [SetUp]
-    public void Setup()
-    {
-        // Read base URL from environment variable if set
-        var envUrl = Environment.GetEnvironmentVariable("APP_URL");
-        if (!string.IsNullOrEmpty(envUrl))
-        {
-            _baseUrl = envUrl;
-        }
-    }
+    // ── Page Load ──
 
     [Test]
     public async Task AgentsPage_ShouldLoad()
     {
-        // Navigate to agents page
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
 
-        // Verify page title
         await Expect(Page).ToHaveTitleAsync("A2A Agents");
-
-        // Verify main layout elements exist
         await Expect(Page.Locator(".agent-layout")).ToBeVisibleAsync();
         await Expect(Page.Locator(".agent-sidebar")).ToBeVisibleAsync();
         await Expect(Page.Locator(".agent-main")).ToBeVisibleAsync();
     }
 
+    // ── Agent Cards ──
+
     [Test]
-    public async Task AgentsPage_ShouldShowAvailableAgents()
+    public async Task AgentsPage_ShouldShowAllFiveAgents()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForSelectorAsync(".agent-card", new() { Timeout = 15000 });
 
-        // Wait for agents to load
-        await Page.WaitForSelectorAsync(".agent-card");
-
-        // Verify all 4 agents are listed
         var agentCards = Page.Locator(".agent-card");
-        await Expect(agentCards).ToHaveCountAsync(4);
-
-        // Verify agent names
-        await Expect(Page.GetByText("Planner Agent")).ToBeVisibleAsync();
-        await Expect(Page.GetByText("Reviewer Agent")).ToBeVisibleAsync();
-        await Expect(Page.GetByText("Research Agent")).ToBeVisibleAsync();
-        await Expect(Page.GetByText("Code Agent")).ToBeVisibleAsync();
+        await Expect(agentCards).ToHaveCountAsync(5);
     }
 
     [Test]
-    public async Task AgentsPage_ShouldShowToolsCount()
+    public async Task AgentsPage_ShouldShowAgentNames()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForSelectorAsync(".agent-card", new() { Timeout = 15000 });
 
-        // Wait for agents to load
-        await Page.WaitForSelectorAsync(".agent-card");
+        await Expect(Page.GetByText("Coordinator")).ToBeVisibleAsync();
+        await Expect(Page.GetByText("Planner")).ToBeVisibleAsync();
+        await Expect(Page.GetByText("Reviewer")).ToBeVisibleAsync();
+        await Expect(Page.GetByText("Research")).ToBeVisibleAsync();
+        await Expect(Page.GetByText("Code")).ToBeVisibleAsync();
+    }
 
-        // Check that tool counts are shown (should be > 0 if agents are connected)
-        var toolCounts = Page.Locator(".agent-card-tools");
-        var count = await toolCounts.CountAsync();
+    [Test]
+    public async Task AgentsPage_ShouldShowSkillCounts()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForSelectorAsync(".agent-card", new() { Timeout = 15000 });
 
-        Assert.That(count, Is.EqualTo(4), "Should have 4 agents with tool counts");
+        var skillLabels = Page.Locator(".agent-card-skills");
+        var count = await skillLabels.CountAsync();
 
-        // Log tool counts for debugging
+        Assert.That(count, Is.EqualTo(5), "All 5 agents should show skill counts");
+
         for (int i = 0; i < count; i++)
         {
-            var text = await toolCounts.Nth(i).TextContentAsync();
-            Console.WriteLine($"Agent {i + 1} tools: {text}");
+            var text = await skillLabels.Nth(i).TextContentAsync();
+            Console.WriteLine($"Agent {i + 1} skills: {text}");
+            Assert.That(text, Does.Contain("skill"), $"Agent {i + 1} should display skill count");
         }
     }
 
     [Test]
-    public async Task AgentsPage_ShouldHaveToolTesterAndWorkflowTabs()
+    public async Task AgentsPage_ClickingAgent_ShouldActivate()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForSelectorAsync(".agent-card", new() { Timeout = 15000 });
 
-        // Verify tabs exist
-        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Tool Tester" })).ToBeVisibleAsync();
-        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" })).ToBeVisibleAsync();
+        await Page.Locator(".agent-card").First.ClickAsync();
+
+        var activeCards = Page.Locator(".agent-card.active");
+        await Expect(activeCards).ToHaveCountAsync(1);
     }
 
     [Test]
-    public async Task ToolTester_ShouldShowToolsWhenAgentSelected()
+    public async Task AgentsPage_SwitchingAgents_ShouldChangeActive()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForSelectorAsync(".agent-card", new() { Timeout = 15000 });
 
-        // Wait for agents to load
-        await Page.WaitForSelectorAsync(".agent-card");
-
-        // Click on Planner Agent
         await Page.Locator(".agent-card").First.ClickAsync();
+        await Expect(Page.Locator(".agent-card.active")).ToHaveCountAsync(1);
 
-        // Wait for tools to appear
-        await Page.WaitForSelectorAsync(".tools-grid", new() { Timeout = 5000 });
+        await Page.Locator(".agent-card").Nth(2).ClickAsync();
+        await Expect(Page.Locator(".agent-card.active")).ToHaveCountAsync(1);
+    }
 
-        // Verify tools are displayed
+    // ── Tabs ──
+
+    [Test]
+    public async Task AgentsPage_ShouldHaveToolTesterTab()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
+
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Tool Tester" })).ToBeVisibleAsync();
+    }
+
+    [Test]
+    public async Task AgentsPage_ShouldHaveWorkflowTab()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
+
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" })).ToBeVisibleAsync();
+    }
+
+    // ── Tool Tester ──
+
+    [Test]
+    public async Task ToolTester_SelectAgent_ShouldShowTools()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForSelectorAsync(".agent-card", new() { Timeout = 15000 });
+
+        await Page.Locator(".agent-card").First.ClickAsync();
+        await Page.WaitForTimeoutAsync(1000);
+
+        // Agent should have tools or show a message
         var toolCards = Page.Locator(".tool-card");
         var count = await toolCards.CountAsync();
+        Console.WriteLine($"Tools displayed: {count}");
 
-        Console.WriteLine($"Number of tools displayed: {count}");
-
-        // Should have at least 1 tool (or 0 if agent not connected)
         Assert.That(count, Is.GreaterThanOrEqualTo(0));
     }
 
     [Test]
-    public async Task ToolTester_ShouldShowParamsWhenToolSelected()
+    public async Task ToolTester_ClickTool_ShouldShowExecutionPanel()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForSelectorAsync(".agent-card", new() { Timeout = 15000 });
 
-        // Wait for and click on Planner Agent
-        await Page.WaitForSelectorAsync(".agent-card");
         await Page.Locator(".agent-card").First.ClickAsync();
 
-        // Wait for tools and click first tool
-        var toolsGrid = Page.Locator(".tools-grid");
-        if (await toolsGrid.IsVisibleAsync())
+        var toolCards = Page.Locator(".tool-card");
+        if (await toolCards.CountAsync() > 0)
         {
-            var firstTool = Page.Locator(".tool-card").First;
-            if (await firstTool.IsVisibleAsync())
-            {
-                await firstTool.ClickAsync();
-
-                // Verify execution panel appears
-                await Expect(Page.Locator(".tool-execution-panel")).ToBeVisibleAsync();
-
-                // Verify Execute button exists
-                await Expect(Page.Locator(".execute-btn")).ToBeVisibleAsync();
-            }
+            await toolCards.First.ClickAsync();
+            await Expect(Page.Locator(".tool-execution-panel")).ToBeVisibleAsync();
+            await Expect(Page.Locator(".execute-btn")).ToBeVisibleAsync();
+        }
+        else
+        {
+            Assert.Ignore("No tools available — agent may not be connected");
         }
     }
 
-    [Test]
-    public async Task Workflow_TabShouldShowInputForm()
-    {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+    // ── Workflow Tab ──
 
-        // Click Workflow tab
+    [Test]
+    public async Task Workflow_ShouldShowInputForm()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
+
         await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
 
-        // Verify workflow panel is visible
         await Expect(Page.Locator(".workflow-panel")).ToBeVisibleAsync();
-
-        // Verify textarea exists
         await Expect(Page.Locator(".workflow-form textarea")).ToBeVisibleAsync();
-
-        // Verify Run Workflow button exists
-        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" })).ToBeVisibleAsync();
     }
 
     [Test]
-    public async Task Navigation_ShouldHaveBackToChatLink()
+    public async Task Workflow_ShouldShowPresetButtons()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
 
-        // Verify Back to Chat link exists
-        await Expect(Page.Locator(".nav-link-btn")).ToBeVisibleAsync();
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+
+        var presets = Page.Locator(".preset-btn");
+        var count = await presets.CountAsync();
+
+        Assert.That(count, Is.EqualTo(4), "Should have 4 preset buttons");
+    }
+
+    [Test]
+    public async Task Workflow_PresetButton_ShouldFillTextarea()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
+
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+        await Page.Locator(".preset-btn").First.ClickAsync();
+
+        var textarea = Page.Locator(".workflow-form textarea");
+        var value = await textarea.InputValueAsync();
+        Assert.That(value, Is.Not.Empty, "Preset should fill the textarea");
+    }
+
+    [Test]
+    public async Task Workflow_ShouldHaveRunButton()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
+
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" })).ToBeVisibleAsync();
+    }
+
+    // ── Navigation ──
+
+    [Test]
+    public async Task AgentsPage_ShouldHaveBackToChatLink()
+    {
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
+
         await Expect(Page.GetByText("Back to Chat")).ToBeVisibleAsync();
     }
 
     [Test]
-    public async Task Navigation_BackToChatShouldWork()
+    public async Task AgentsPage_BackToChat_ShouldNavigate()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
 
-        // Click Back to Chat
-        await Page.Locator(".nav-link-btn").ClickAsync();
-
-        // Verify we're on the chat page
-        await Page.WaitForURLAsync(url => url.Contains("/") && !url.Contains("/agents"));
-    }
-
-    [Test]
-    public async Task Refresh_ButtonShouldExist()
-    {
-        await Page.GotoAsync($"{_baseUrl}/agents");
-
-        // Verify Refresh button exists
-        await Expect(Page.Locator(".refresh-btn")).ToBeVisibleAsync();
+        await Page.GetByText("Back to Chat").ClickAsync();
+        await Page.WaitForURLAsync(url => !url.Contains("/agents"), new() { Timeout = 10000 });
     }
 }

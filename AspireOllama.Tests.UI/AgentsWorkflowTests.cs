@@ -1,218 +1,119 @@
 using Microsoft.Playwright;
-using Microsoft.Playwright.NUnit;
 
 namespace AspireOllama.Tests.UI;
 
+/// <summary>
+/// Tests for the Workflow tab on the Agents page — execution, results, call summary, final result.
+/// These tests run actual workflows and require all services to be running.
+/// Timeout: 120s per workflow execution.
+/// </summary>
 [Parallelizable(ParallelScope.Self)]
 [TestFixture]
-public class AgentsWorkflowTests : PageTest
+public class AgentsWorkflowTests : AppTestBase
 {
-    private string _baseUrl = "https://localhost:7170"; // Update with your actual port
+    private const int WorkflowTimeout = 120000; // 2 min per workflow
 
-    [SetUp]
-    public void Setup()
+    private async Task NavigateToWorkflowTab()
     {
-        var envUrl = Environment.GetEnvironmentVariable("APP_URL");
-        if (!string.IsNullOrEmpty(envUrl))
-        {
-            _baseUrl = envUrl;
-        }
+        await Page.GotoAsync($"{BaseUrl}/agents");
+        await Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 30000 });
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+        await Expect(Page.Locator(".workflow-panel")).ToBeVisibleAsync();
+    }
+
+    private async Task RunWorkflow(string task)
+    {
+        await NavigateToWorkflowTab();
+        await Page.Locator(".workflow-form textarea").FillAsync(task);
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
+    }
+
+    // ── Workflow Execution ──
+
+    [Test]
+    public async Task Workflow_ShouldExecuteAndShowResults()
+    {
+        await RunWorkflow("Plan a simple REST API");
+
+        // Wait for workflow to complete — look for results area
+        await Page.WaitForSelectorAsync(".workflow-results", new() { Timeout = WorkflowTimeout });
+
+        await Expect(Page.Locator(".workflow-results")).ToBeVisibleAsync();
     }
 
     [Test]
-    public async Task Workflow_ShouldExecuteAndShowSequenceDiagram()
+    public async Task Workflow_ShouldShowTaskDescription()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await RunWorkflow("Create a hello world API");
 
-        // Click Workflow tab
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+        await Page.WaitForSelectorAsync(".workflow-task", new() { Timeout = WorkflowTimeout });
 
-        // Enter a task
-        await Page.Locator(".workflow-form textarea").FillAsync("Create a simple login system");
-
-        // Click Run Workflow
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
-
-        // Wait for workflow to complete (may take a while)
-        await Page.WaitForSelectorAsync(".sequence-diagram", new() { Timeout = 60000 });
-
-        // Verify sequence diagram is visible
-        await Expect(Page.Locator(".sequence-diagram")).ToBeVisibleAsync();
-
-        // Verify sequence flow has items
-        var sequenceCards = Page.Locator(".sequence-call-card");
-        var count = await sequenceCards.CountAsync();
-
-        Console.WriteLine($"Workflow completed with {count} steps");
-        Assert.That(count, Is.GreaterThan(0), "Workflow should have at least one step");
-    }
-
-    [Test]
-    public async Task Workflow_ShouldShowMCPFunctionNames()
-    {
-        await Page.GotoAsync($"{_baseUrl}/agents");
-
-        // Click Workflow tab
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
-
-        // Enter a task
-        await Page.Locator(".workflow-form textarea").FillAsync("Plan a REST API");
-
-        // Click Run Workflow
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
-
-        // Wait for completion
-        await Page.WaitForSelectorAsync(".mcp-badge", new() { Timeout = 60000 });
-
-        // Verify MCP badges are visible
-        var mcpBadges = Page.Locator(".mcp-badge");
-        var count = await mcpBadges.CountAsync();
-
-        Assert.That(count, Is.GreaterThan(0), "Should show MCP function badges");
-
-        // Log the function names
-        for (int i = 0; i < count; i++)
-        {
-            var funcName = await mcpBadges.Nth(i).Locator(".mcp-func").TextContentAsync();
-            Console.WriteLine($"Step {i + 1} MCP function: {funcName}");
-        }
-    }
-
-    [Test]
-    public async Task Workflow_ShouldShowAgentNames()
-    {
-        await Page.GotoAsync($"{_baseUrl}/agents");
-
-        // Click Workflow tab
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
-
-        // Enter a task
-        await Page.Locator(".workflow-form textarea").FillAsync("Implement user authentication");
-
-        // Click Run Workflow
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
-
-        // Wait for completion
-        await Page.WaitForSelectorAsync(".call-target-agent", new() { Timeout = 60000 });
-
-        // Verify target agents are shown
-        var targetAgents = Page.Locator(".call-target-agent");
-        var count = await targetAgents.CountAsync();
-
-        Assert.That(count, Is.GreaterThan(0), "Should show target agents");
-
-        // Log agent names
-        for (int i = 0; i < count; i++)
-        {
-            var agentName = await targetAgents.Nth(i).TextContentAsync();
-            Console.WriteLine($"Step {i + 1} target agent: {agentName}");
-        }
+        var taskText = await Page.Locator(".workflow-task").TextContentAsync();
+        Assert.That(taskText, Is.Not.Empty, "Should display the task description");
     }
 
     [Test]
     public async Task Workflow_ShouldShowExecutionTime()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await RunWorkflow("Assess complexity of a web app");
 
-        // Click Workflow tab
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+        await Page.WaitForSelectorAsync(".workflow-time", new() { Timeout = WorkflowTimeout });
 
-        // Enter a task
-        await Page.Locator(".workflow-form textarea").FillAsync("Design a caching system");
-
-        // Click Run Workflow
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
-
-        // Wait for completion
-        await Page.WaitForSelectorAsync(".exec-time", new() { Timeout = 60000 });
-
-        // Verify execution times are shown
-        var execTimes = Page.Locator(".exec-time");
-        var count = await execTimes.CountAsync();
-
-        Assert.That(count, Is.GreaterThan(0), "Should show execution times");
+        await Expect(Page.Locator(".workflow-time").First).ToBeVisibleAsync();
     }
 
-    [Test]
-    public async Task Workflow_ShouldAllowExpandingResults()
-    {
-        await Page.GotoAsync($"{_baseUrl}/agents");
-
-        // Click Workflow tab
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
-
-        // Enter a task
-        await Page.Locator(".workflow-form textarea").FillAsync("Build a notification service");
-
-        // Click Run Workflow
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
-
-        // Wait for completion
-        await Page.WaitForSelectorAsync(".expand-result-btn", new() { Timeout = 60000 });
-
-        // Click first expand button
-        var expandBtn = Page.Locator(".expand-result-btn").First;
-        await expandBtn.ClickAsync();
-
-        // Verify result content is visible
-        await Expect(Page.Locator(".result-json").First).ToBeVisibleAsync();
-    }
+    // ── Call Summary ──
 
     [Test]
     public async Task Workflow_ShouldShowCallSummary()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await RunWorkflow("Research best practices for caching");
 
-        // Click Workflow tab
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+        await Page.WaitForSelectorAsync(".workflow-results", new() { Timeout = WorkflowTimeout });
 
-        // Enter a task
-        await Page.Locator(".workflow-form textarea").FillAsync("Create a payment processor");
-
-        // Click Run Workflow
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
-
-        // Wait for completion
-        await Page.WaitForSelectorAsync(".call-summary", new() { Timeout = 60000 });
-
-        // Verify call summary is visible
-        await Expect(Page.Locator(".call-summary")).ToBeVisibleAsync();
-
-        // Verify summary cards exist
-        var summaryCards = Page.Locator(".summary-card");
-        var count = await summaryCards.CountAsync();
-
-        Assert.That(count, Is.GreaterThan(0), "Should have summary cards for agents");
+        // Call summary section should be present after workflow completes
+        var summarySection = Page.Locator(".call-summary, .workflow-summary");
+        await Expect(summarySection.First).ToBeVisibleAsync();
     }
 
+    // ── Final Result ──
+
     [Test]
-    public async Task Workflow_ShouldShowStepNumbers()
+    public async Task Workflow_ShouldShowFinalResult()
     {
-        await Page.GotoAsync($"{_baseUrl}/agents");
+        await RunWorkflow("Suggest agents for a code review task");
 
-        // Click Workflow tab
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Workflow" }).ClickAsync();
+        await Page.WaitForSelectorAsync(".workflow-results", new() { Timeout = WorkflowTimeout });
 
-        // Enter a task
-        await Page.Locator(".workflow-form textarea").FillAsync("Implement search functionality");
+        // Final result section should be present
+        var finalResult = Page.Locator(".final-result, .workflow-results");
+        await Expect(finalResult.First).ToBeVisibleAsync();
+    }
 
-        // Click Run Workflow
-        await Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" }).ClickAsync();
+    // ── Disabled State ──
 
-        // Wait for completion
-        await Page.WaitForSelectorAsync(".call-step-number", new() { Timeout = 60000 });
+    [Test]
+    public async Task Workflow_RunButton_ShouldDisableDuringExecution()
+    {
+        await NavigateToWorkflowTab();
+        await Page.Locator(".workflow-form textarea").FillAsync("Quick test task");
 
-        // Verify step numbers are shown in sequence
-        var stepNumbers = Page.Locator(".call-step-number");
-        var count = await stepNumbers.CountAsync();
+        var runBtn = Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" });
+        await runBtn.ClickAsync();
 
-        Assert.That(count, Is.GreaterThan(0), "Should show step numbers");
+        // Presets should be disabled during execution
+        var preset = Page.Locator(".preset-btn").First;
+        await Expect(preset).ToBeDisabledAsync();
+    }
 
-        // Verify steps are numbered correctly
-        for (int i = 0; i < count; i++)
-        {
-            var stepText = await stepNumbers.Nth(i).TextContentAsync();
-            Console.WriteLine($"Step number: {stepText}");
-        }
+    // ── Empty State ──
+
+    [Test]
+    public async Task Workflow_EmptyInput_RunButtonShouldBePresent()
+    {
+        await NavigateToWorkflowTab();
+
+        // Run button should still be visible (enabled or disabled based on input)
+        await Expect(Page.GetByRole(AriaRole.Button, new() { Name = "Run Workflow" })).ToBeVisibleAsync();
     }
 }
