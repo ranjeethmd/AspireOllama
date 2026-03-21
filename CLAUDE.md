@@ -204,6 +204,16 @@ Uses SerpAPI (Google results). Config in `appsettings.json`:
 ```
 Put the actual key in `appsettings.Secrets.json`. Free tier: 100 searches/month at [serpapi.com](https://serpapi.com/).
 
+## Chat UI
+
+The Chat page (`/chat`) is the main user-facing interface:
+- **Markdown rendering**: Agent responses rendered as HTML via Markdig. User messages stay plain text.
+- **Auto-scroll**: Chat scrolls to bottom on send, receive, and session load (via JS interop).
+- **Full-width messages**: Message bubbles use 90% of chat area width. Content wrapper fills available space.
+- **User messages**: Blue gradient card effect, right-aligned with avatar.
+- **Agent messages**: Subtle card with border, left-aligned. Markdown-body CSS covers code blocks, tables, lists, headings, blockquotes, links.
+- **Session sidebar**: Left panel with session list, new chat button, navigation to Agents and Documents pages.
+
 ## Workflow UI
 
 The Agents page (`/agents`) has a multi-agent workflow tab:
@@ -236,5 +246,5 @@ The base class `A2AServerBase.AddTextArtifact` signature is `(task, text, name)`
 - **`AddTextArtifact(task, text, name)`**: text is second param, name is third. Easy to swap — verify order.
 - **Resilience handler `MaxRetryAttempts`**: minimum is 1, not 0. Setting 0 throws `OptionsValidationException`.
 - **SerpAPI for web search** (not Google Custom Search which requires billing). Key in `appsettings.Secrets.json`.
-- **Markdig** renders Final Result as HTML. Uses default pipeline (no `UseAdvancedExtensions` — removed in Markdig 1.1.1).
+- **Markdig** renders agent chat responses and workflow Final Result as HTML. Uses default pipeline (no `UseAdvancedExtensions` — removed in Markdig 1.1.1). Pipeline is static in both Chat.razor and Agents.razor.
 - **Control flow style**: Use switch expressions for multi-case branching (3+ cases). Use plain `if` for single conditions. Do not use switch/enum when a simple boolean check suffices.

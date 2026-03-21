@@ -506,6 +506,7 @@ For local development without full identity provider setup:
 - [x] Image analysis as a tool — `analyze_image` retrieves from session history
 - [x] Calculator tool — built-in math evaluation
 - [x] Workflow UI — hub diagram, expandable blocks, preset buttons, Call Summary, Final Result with markdown rendering
+- [x] Chat UI — markdown rendering (Markdig) for agent responses, auto-scroll, full-width message layout
 - [x] Web search tool — SerpAPI integration for real-time Google search (key in appsettings.Secrets.json)
 - [ ] Set up audit logging
 - [x] Per-user rate limiting — A2A agents: 20 req/min per user (oid claim), 429 when exceeded, built into A2AHostExtensions

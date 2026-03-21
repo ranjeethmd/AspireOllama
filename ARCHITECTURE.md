@@ -28,7 +28,8 @@ This document provides a comprehensive visual overview of the AspireOllama archi
 20. [User Sessions & Scoping](#user-sessions--scoping)
 21. [Timeout Configuration](#timeout-configuration)
 22. [Heartbeat Logging](#heartbeat-logging)
-23. [Workflow UI](#workflow-ui)
+23. [Chat UI](#chat-ui)
+24. [Workflow UI](#workflow-ui)
 
 ---
 
@@ -1597,6 +1598,45 @@ The 15-minute gateway timeout for Coordinator and API Service routes allows mult
 Aspire health-check heartbeat logging is suppressed in `ServiceDefaults` to reduce log noise. The `Microsoft.Extensions.Diagnostics.HealthChecks` logger category is filtered to `Warning` level, so only non-healthy heartbeat results appear in logs.
 
 ---
+
+## Chat UI
+
+The Chat page (`Chat.razor`) is the primary user-facing interface.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           CHAT UI LAYOUT                                     │
+│                                                                              │
+│  ┌──────────────┐  ┌──────────────────────────────────────────────────────┐  │
+│  │  Session      │  │  Chat Header (AI Assistant title)                   │  │
+│  │  Sidebar      │  ├──────────────────────────────────────────────────────┤  │
+│  │               │  │                                                      │  │
+│  │  [+ New Chat] │  │  Messages Area (auto-scroll to bottom)              │  │
+│  │               │  │                                                      │  │
+│  │  Session 1    │  │  ┌─────────────────────────────────────────────┐    │  │
+│  │  Session 2    │  │  │ 👤 User: plain text, blue card, right-align│    │  │
+│  │  Session 3    │  │  └─────────────────────────────────────────────┘    │  │
+│  │  ...          │  │                                                      │  │
+│  │               │  │  ┌─────────────────────────────────────────────────┐│  │
+│  │  [Agents]     │  │  │ 🤖 Agent: markdown via Markdig (90% width)     ││  │
+│  │  [Documents]  │  │  │  - Headings, code blocks, tables, lists        ││  │
+│  │               │  │  │  - Blockquotes, links, inline code             ││  │
+│  └──────────────┘  │  └─────────────────────────────────────────────────┘│  │
+│                     │                                                      │  │
+│                     ├──────────────────────────────────────────────────────┤  │
+│                     │  Input Area (text + file/image attachments)          │  │
+│                     └──────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Message Rendering:
+    ┌──────────────────────────────────────────────┐
+    │  User messages  → plain text, card effect     │
+    │  Agent messages → Markdig HTML rendering      │
+    │                   (static MarkdownPipeline)   │
+    │  Auto-scroll    → JS interop after each       │
+    │                   send, receive, session load  │
+    └──────────────────────────────────────────────┘
+```
 
 ## Workflow UI
 
