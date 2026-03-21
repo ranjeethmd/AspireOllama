@@ -198,18 +198,30 @@ AspireOllama includes specialized AI agents that communicate via the [Agent-to-A
 
 ### A2A Endpoints
 
-Each agent exposes:
+Each agent exposes the full A2A protocol (unsupported operations return 501):
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /.well-known/agent.json` | Agent Card - describes capabilities, skills, and metadata |
-| `POST /a2a/message:send` | Send a message to the agent and receive a task |
-| `GET /a2a/tasks/{taskId}` | Get task status and results |
-| `POST /a2a/tasks/{taskId}:cancel` | Cancel a running task |
+| Endpoint | Description | Auth |
+|----------|-------------|------|
+| `GET /.well-known/agent.json` | Agent Card — discovery | None |
+| `POST /a2a/message:send` | Send a message, receive a task | Role + Rate limited |
+| `POST /a2a/message:stream` | Send a message, stream updates | Role + Rate limited |
+| `GET /a2a/tasks/{taskId}` | Get task status and results | Role + Rate limited |
+| `GET /a2a/tasks` | List all tasks | Role + Rate limited |
+| `POST /a2a/tasks/{taskId}:cancel` | Cancel a running task | Role + Rate limited |
+| `POST /a2a/tasks/{taskId}:subscribe` | Subscribe to task events | Role + Rate limited |
+| `POST /a2a/tasks/{taskId}/pushNotification` | Create push notification config | Role + Rate limited |
+| `GET /a2a/tasks/{taskId}/pushNotification` | List push notification configs | Role + Rate limited |
+| `DELETE /a2a/tasks/{taskId}/pushNotification/{id}` | Delete push notification config | Role + Rate limited |
+| `GET /a2a/agent/card` | Extended agent card (authenticated) | Role + Rate limited |
+
+### Rate Limiting
+
+Per-user rate limiting on all A2A endpoints (20 req/min, 429 when exceeded). Partitioned by `oid` JWT claim.
 
 ### Inter-Agent Communication
 
 Agents can discover and call each other directly:
+- **Coordinator** calls all agents via AI-driven planning
 - **Planner** calls Research for context and Reviewer for validation
 - **Code** calls Reviewer for code review feedback
 - All agents use Aspire service discovery for URL resolution

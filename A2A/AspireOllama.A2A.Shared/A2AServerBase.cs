@@ -7,7 +7,7 @@ namespace AspireOllama.A2A.Shared;
 /// Base class for A2A protocol server implementation.
 /// Provides task management and common A2A functionality.
 /// </summary>
-public abstract class A2AServerBase
+public abstract class A2AServerBase : IA2AServer
 {
     protected readonly ConcurrentDictionary<string, A2ATask> _tasks = new();
     protected readonly ILogger _logger;
@@ -79,6 +79,38 @@ public abstract class A2AServerBase
         }
         return false;
     }
+
+    // ── A2A Protocol: Not yet supported — override in concrete agents when ready ──
+
+    /// <summary>message/stream (3.1.2) — override to support streaming</summary>
+    public virtual IAsyncEnumerable<SendMessageResponse> HandleSendMessageStreamAsync(SendMessageRequest request, CancellationToken ct)
+        => throw new NotSupportedException("Streaming is not supported by this agent.");
+
+    /// <summary>tasks/subscribe (3.1.6) — override to support task subscriptions</summary>
+    public virtual IAsyncEnumerable<A2ATaskStatus> SubscribeToTaskAsync(string taskId, CancellationToken ct)
+        => throw new NotSupportedException("Task subscription is not supported by this agent.");
+
+    /// <summary>tasks/pushNotification/create (3.1.7)</summary>
+    public virtual Task<PushNotificationConfig> CreatePushNotificationAsync(string taskId, string webhookUrl, CancellationToken ct)
+        => throw new NotSupportedException("Push notifications are not supported by this agent.");
+
+    /// <summary>tasks/pushNotification/get (3.1.8)</summary>
+    public virtual Task<PushNotificationConfig?> GetPushNotificationAsync(string taskId, string configId, CancellationToken ct)
+        => throw new NotSupportedException("Push notifications are not supported by this agent.");
+
+    /// <summary>tasks/pushNotification/list (3.1.9)</summary>
+    public virtual Task<IEnumerable<PushNotificationConfig>> ListPushNotificationsAsync(string taskId, CancellationToken ct)
+        => throw new NotSupportedException("Push notifications are not supported by this agent.");
+
+    /// <summary>tasks/pushNotification/delete (3.1.10)</summary>
+    public virtual Task<bool> DeletePushNotificationAsync(string taskId, string configId, CancellationToken ct)
+        => throw new NotSupportedException("Push notifications are not supported by this agent.");
+
+    /// <summary>agent/card (3.1.11) — override to return tenant-specific card</summary>
+    public virtual AgentCard GetExtendedAgentCard(string? tenantId = null)
+        => GetAgentCard();
+
+    // ── Helpers ──
 
     /// <summary>
     /// Create a new task for a message.

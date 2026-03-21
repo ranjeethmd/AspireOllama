@@ -31,6 +31,8 @@ The app is locked by running processes — stop the app before rebuilding if you
 - **Prerender disabled** on Blazor pages (`prerender: false`). Cross-page navigation uses `forceLoad: true`.
 - **Heartbeat logging suppressed** in ServiceDefaults. Only warnings logged for health checks.
 - **Terraform** in `infra/terraform/` manages Azure AD app registrations, roles, and secrets generation.
+- **Per-user rate limiting** on all A2A agents: 20 req/min per user, 429 when exceeded. Built into `AddA2AServices()`.
+- **A2A protocol interface** (`IA2AServer`) covers all 11 spec operations. Unsupported ones return 501.
 
 ## Project Structure
 
@@ -74,11 +76,48 @@ A2A/
 5. Update system prompt in `AiChatService` to mention the tool
 
 ### Adding a new A2A agent
-1. Create project in `A2A/` following PlannerAgent pattern
-2. Add to AppHost: project, agent discovery env vars, Ollama reference, gateway, Scalar, telemetry
-3. Add to solution (.slnx), gateway routes (appsettings.json), terraform (roles + secrets)
-4. Register HTTP client in ApiService Program.cs via `AddA2AClient`
-5. Update Coordinator's planning prompt with new agent skills
+1. Create project in `A2A/` with a class extending `A2AServerBase`
+2. Program.cs is 10 lines — uses shared extensions:
+```csharp
+builder.AddServiceDefaults();
+builder.AddBackendAuthentication();
+builder.AddOlamaSharpClient(OllamaModels.ChatModel);
+builder.AddA2AServices();          // Known agents, HTTP clients, rate limiting
+builder.AddA2AServer<MyServer>();   // Registers singleton
+
+app.MapDefaultEndpoints();
+app.UseBackendAuthentication();
+app.MapA2AEndpoints<MyServer>(AuthRoles.MyAccess);  // Maps all protocol endpoints + auth + rate limit
+```
+3. Add to AppHost: project, agent discovery env vars, Ollama reference, gateway, Scalar, telemetry
+4. Add to solution (.slnx), gateway routes (appsettings.json), terraform (roles + secrets)
+5. Register HTTP client in ApiService Program.cs via `AddA2AClient`
+6. Update Coordinator's planning prompt with new agent skills
+
+### A2A Protocol Architecture
+```
+IA2AServer (interface — full A2A spec, 11 operations)
+  └── A2AServerBase (abstract — implements core, virtual NotSupported for extended)
+       ├── PlannerA2AServer
+       ├── ReviewerA2AServer
+       ├── ResearchA2AServer
+       ├── CodeA2AServer
+       └── CoordinatorA2AServer
+
+Extensions (A2A.Shared):
+  AddA2AServices()       — known agents, HTTP clients, rate limiting
+  AddA2AServer<T>()      — registers server singleton
+  MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting, 501 for unsupported
+```
+
+### A2A Rate Limiting
+Per-user rate limiting on all A2A endpoints (except agent card discovery).
+Partitions by `oid` JWT claim → IP fallback → "anonymous".
+```json
+{ "A2A": { "RateLimit": { "PermitLimit": 20, "WindowSeconds": 60, "QueueLimit": 5 } } }
+```
+Rate limiting is applied only when authorization role is provided to `MapA2AEndpoints`.
+Returns 429 Too Many Requests when exceeded.
 
 ### Changing LLM models
 Edit `AspireOllama.Shared/OllamaModels.cs` — one file changes all services and agents.

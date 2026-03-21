@@ -7,9 +7,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AspireOllama.ServiceDefaults\AspireOllama.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\AspireOllama.Shared\AspireOllama.Shared.csproj" />
   </ItemGroup>
 
 </Project>

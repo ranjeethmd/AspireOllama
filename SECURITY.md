@@ -433,7 +433,7 @@ For local development without full identity provider setup:
 - [x] Workflow UI — hub diagram, expandable blocks, preset buttons, Call Summary, Final Result with markdown rendering
 - [x] Web search tool — SerpAPI integration for real-time Google search (key in appsettings.Secrets.json)
 - [ ] Set up audit logging
-- [ ] Configure rate limiting
+- [x] Per-user rate limiting — A2A agents: 20 req/min per user (oid claim), 429 when exceeded, built into A2AHostExtensions
 - [ ] Test OBO flow end-to-end
 - [ ] Verify tool scope restrictions
 - [ ] Deploy to Kubernetes (`k8s/base/`) with nginx Ingress replacing YARP gateway
