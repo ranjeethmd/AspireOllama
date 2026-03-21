@@ -35,13 +35,11 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 *AI assistant with markdown-rendered responses, web search results, session history sidebar, and dark theme*
 
 ### A2A Agents 
-#### Skills & Workflow
+#### Skills
 ![Agents UI](images/localhost_52112_agents.png)
 *Agent browser showing Coordinator, Planner, Reviewer, Research, and Code agents with their skills*
 
 #### Workflow UI
-
-### Multi-Agent Workflow
 ![Workflow UI](<images/localhost_52112_agents (1).png>)
 *Multi-agent workflow showing Coordinator orchestration with hub diagram, execution phases, call summary, and final result*
 
