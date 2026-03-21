@@ -34,9 +34,26 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 ![Chat UI](<images/localhost_52112_chat_ca6eb5b4-3604-4e03-b0d9-da64f09cce18 (2).png>)
 *AI assistant with markdown-rendered responses, web search results, session history sidebar, and dark theme*
 
-### A2A Agents — Skills & Workflow
+### A2A Agents 
+#### Skills & Workflow
 ![Agents UI](images/localhost_52112_agents.png)
 *Agent browser showing Coordinator, Planner, Reviewer, Research, and Code agents with their skills*
+
+#### Workflow UI
+
+### Multi-Agent Workflow
+![Workflow UI](<images/localhost_52112_agents (1).png>)
+*Multi-agent workflow showing Coordinator orchestration with hub diagram, execution phases, call summary, and final result*
+
+The Agents page (`Agents.razor`) provides a visual workflow experience:
+
+- **Hub diagram** showing the flow: Coordinator plan --> Agents box --> Coordinator aggregate
+- **Expandable blocks** for each workflow phase (assess, plan, execute, review, aggregate)
+- **Preset buttons** for common multi-agent tasks
+- **Call Summary** displayed as expandable section with per-agent stats
+- **Final Result** rendered as formatted markdown (headings, code blocks, lists) with "Show all" / "Show less" toggle
+- Agent skill counts shown per agent in the UI
+
 
 ### RAG Document Upload
 ![Documents UI](images/localhost_52112_documents.png)
@@ -405,21 +422,6 @@ Consistent 10-minute timeouts are configured across all services (Ollama HTTP cl
 ## Heartbeat Logging
 
 Aspire health-check heartbeat logging is suppressed in `ServiceDefaults` to reduce log noise. Only non-healthy heartbeat results are logged.
-
-## Workflow UI
-
-### Multi-Agent Workflow
-![Workflow UI](<images/localhost_52112_agents (1).png>)
-*Multi-agent workflow showing Coordinator orchestration with hub diagram, execution phases, call summary, and final result*
-
-The Agents page (`Agents.razor`) provides a visual workflow experience:
-
-- **Hub diagram** showing the flow: Coordinator plan --> Agents box --> Coordinator aggregate
-- **Expandable blocks** for each workflow phase (assess, plan, execute, review, aggregate)
-- **Preset buttons** for common multi-agent tasks
-- **Call Summary** displayed as expandable section with per-agent stats
-- **Final Result** rendered as formatted markdown (headings, code blocks, lists) with "Show all" / "Show less" toggle
-- Agent skill counts shown per agent in the UI
 
 ## Observability (New Relic)
 
