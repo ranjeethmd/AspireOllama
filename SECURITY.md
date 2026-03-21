@@ -14,26 +14,27 @@ YARP (Yet Another Reverse Proxy) acts as the central gateway, exposing both API 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              YARP Gateway                                   │
-│  ┌────────────────────────────────┐  ┌────────────────────────────────────┐ │
-│  │     Route: /api/*              │  │     Route: /mcp/*                  │ │
-│  │     Auth: Authorization Code   │  │     Auth: Bearer (OBO Token)       │ │
-│  │     Audience: api://api-service│  │     Audience: api://mcp-server     │ │
-│  └───────────────┬────────────────┘  └───────────────┬────────────────────┘ │
-└──────────────────┼───────────────────────────────────┼──────────────────────┘
-                   │                                   │
-                   ▼                                   ▼
-          ┌─────────────────┐                 ┌─────────────────┐
-          │   API Service   │────OBO Flow────▶│   MCP Server    │
-          │  (Chat, Sessions)│                │  (Tools)        │
-          └─────────────────┘                 └─────────────────┘
-                   │
-                   │ Token Exchange
-                   ▼
-          ┌─────────────────┐
-          │    Identity     │
-          │    Provider     │
-          │  (Entra ID)     │
-          └─────────────────┘
+│  All routes share the same audience: api://{clientId}                       │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐      │
+│  │  /api/*      │ │  /mcp/*      │ │ /a2a/*       │ │  /*          │      │
+│  │  → API Svc   │ │  → MCP Svc   │ │ → A2A Agents │ │  → Web UI   │      │
+│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘      │
+└─────────┼────────────────┼────────────────┼────────────────┼──────────────┘
+          │                │                │                │
+          ▼                ▼                ▼                ▼
+   ┌───────────┐   ┌───────────┐   ┌───────────────┐   ┌───────────┐
+   │ API Svc   │   │ MCP Svc   │   │ Coordinator   │   │ Web       │
+   │ JWT Bearer│   │ JWT Bearer│   │ Planner, etc  │   │ OIDC+OBO  │
+   │ Roles     │   │ Roles     │   │ JWT + Roles   │   │           │
+   └─────┬─────┘   └───────────┘   └───────────────┘   └─────┬─────┘
+         │                                                      │
+         └──────────────────────┬───────────────────────────────┘
+                                ▼
+                    ┌───────────────────┐
+                    │   Microsoft       │
+                    │   Entra ID        │
+                    │   (Azure AD)      │
+                    └───────────────────┘
 ```
 
 ## Authentication Flows
@@ -112,27 +113,50 @@ When API Service needs to call MCP Server, it exchanges the user's token for a n
      │                │                │                │
 ```
 
-## Token Scopes and Audiences
+## Token Audiences and Roles
 
-| Service | Audience | Scopes |
-|---------|----------|--------|
-| API Service | `api://aspireollama-api` | `Chat.Read`, `Chat.Write`, `Sessions.Manage` |
-| MCP Server | `api://aspireollama-mcp` | `Tools.Execute`, `Tools.Read` |
+### App Registrations
 
-### OBO Token Claims
+| Registration | Purpose | Audience |
+|-------------|---------|----------|
+| `AspireOllama` (API) | All backend services (API, MCP, A2A agents) | `api://{clientId}` |
+| `AspireOllama-Web` | Blazor frontend (OIDC + OBO) | N/A (client only) |
 
-When API Service exchanges a token for MCP Server access, the resulting token contains:
+All backend services share the **same audience** (`api://{clientId}`). There is no per-service audience.
+The Web app uses a delegated scope `access_as_user` on the API app to perform OBO token exchange.
 
+### Authorization Model
+
+- **RBAC via App Roles** — not scopes. Roles are defined on the API app registration and assigned to groups.
+- Roles appear in the `roles` claim of the access token.
+- Backend services validate with `RoleClaimType = "roles"` and `Roles("Api.Chat.Write")` on endpoints.
+- The Web frontend does NOT check roles from the ID token — it calls `GET /api/me` to read roles from the access token.
+
+### OBO Token Flow
+
+When the Web frontend calls a backend service:
+
+```
+Web (cookie auth) → IDownstreamApi (OBO exchange) → access token for api://{clientId}/.default → API Service
+```
+
+The resulting access token contains:
 ```json
 {
-  "aud": "api://aspireollama-mcp",
-  "iss": "https://login.microsoftonline.com/{tenant}/v2.0",
-  "sub": "{original-user-object-id}",
-  "oid": "{original-user-object-id}",
+  "aud": "api://{clientId}",
+  "iss": "https://login.microsoftonline.com/{tenantId}/v2.0",
+  "oid": "{user-object-id}",
   "name": "User Name",
-  "scp": "Tools.Execute Tools.Read",
-  "azp": "api://aspireollama-api"
+  "roles": ["Api.Chat.Write", "Api.Sessions.Manage", "Mcp.Tools.GetTime"],
+  "azp": "{web-client-id}"
 }
+```
+
+### Audience Validation
+
+Backend services accept both `api://{clientId}` and bare `{clientId}` as valid audiences:
+```csharp
+ValidAudiences = new[] { azureAdOptions.Audience, clientId }
 ```
 
 ## YARP Gateway Configuration
@@ -220,45 +244,36 @@ When API Service exchanges a token for MCP Server access, the resulting token co
 
 ## Identity Provider Setup (Entra ID)
 
-### App Registrations Required
+Managed by Terraform in `infra/terraform/`. Two app registrations only.
 
-| App Registration | Purpose | Type |
-|-----------------|---------|------|
-| AspireOllama Gateway | YARP Gateway | Web App (Confidential) |
-| AspireOllama API | API Service | Web API |
-| AspireOllama MCP | MCP Server | Web API |
+### App Registrations
 
-### 1. Gateway App Registration
+| Registration | Purpose | Type |
+|-------------|---------|------|
+| `AspireOllama` | All backend services (API, MCP, A2A agents) | Web API (Resource Server) |
+| `AspireOllama-Web` | Blazor frontend | Web App (Confidential Client) |
 
-```
-Application (client) ID: {gateway-client-id}
-Redirect URIs: https://localhost:{port}/signin-oidc
-API Permissions:
-  - AspireOllama API: Chat.Read, Chat.Write, Sessions.Manage
-  - AspireOllama MCP: Tools.Execute, Tools.Read (for OBO)
-```
-
-### 2. API Service App Registration
+### 1. AspireOllama (API — Resource Server)
 
 ```
-Application (client) ID: {api-client-id}
-Expose an API:
-  - Application ID URI: api://aspireollama-api
-  - Scopes: Chat.Read, Chat.Write, Sessions.Manage
-API Permissions:
-  - AspireOllama MCP: Tools.Execute, Tools.Read (for OBO)
+Application ID URI: api://{clientId}
+Delegated Scope: access_as_user (enables OBO)
+App Roles: 31 roles across Api, Mcp, A2A agents (see AuthScopes.cs)
+Token version: v2.0
 ```
 
-### 3. MCP Server App Registration
+All backend services validate tokens against this single audience.
+App roles are assigned to security groups (Viewer, Standard User, Power User, Admin).
+
+### 2. AspireOllama-Web (Frontend — Confidential Client)
 
 ```
-Application (client) ID: {mcp-client-id}
-Expose an API:
-  - Application ID URI: api://aspireollama-mcp
-  - Scopes: Tools.Execute, Tools.Read
-Authorized client applications:
-  - {api-client-id} (allows OBO from API Service)
+Redirect URIs: https://localhost:7200/signin-oidc, https://ai.ranjeeth.us/signin-oidc
+Required Permissions: access_as_user scope on AspireOllama API
+Auth flow: Authorization Code + PKCE → OBO for downstream calls
 ```
+
+No app roles are defined on this registration — roles come from the API's access token.
 
 ## Implementation Components
 
