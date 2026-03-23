@@ -8,6 +8,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Document Management</PageTitle>
+<AntiforgeryToken />
 
 @if (RoleService.IsLoaded && !RoleService.Profile.CanManageDocuments)
 {
