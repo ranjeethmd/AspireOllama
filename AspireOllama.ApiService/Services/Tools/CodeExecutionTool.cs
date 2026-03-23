@@ -106,11 +106,14 @@ public class CodeExecutionTool : ITool
     private static readonly HashSet<string> BlockedTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "File", "Directory", "Path", "FileInfo", "DirectoryInfo", "FileStream",
-        "StreamReader", "StreamWriter", "Process", "ProcessStartInfo",
+        "StreamReader", "StreamWriter", "TextReader", "TextWriter",
+        "Process", "ProcessStartInfo",
         "Environment", "Assembly", "Type", "Activator", "Marshal",
         "HttpClient", "HttpWebRequest", "WebClient", "WebRequest",
         "Socket", "TcpClient", "UdpClient", "TcpListener",
-        "RegistryKey", "Registry", "AppDomain", "GC"
+        "RegistryKey", "Registry", "AppDomain", "GC",
+        "Console", "Dns", "XDocument", "XmlDocument",
+        "ServicePointManager", "ConfigurationManager"
     };
 
     private static string? ValidateCodeSafety(string code)
@@ -128,7 +131,11 @@ public class CodeExecutionTool : ITool
                 return "Stack allocation is not allowed.";
         }
 
-        // Check all identifiers and qualified names against blocklists
+        // Block 'dynamic' type usage (enables reflection bypass)
+        if (root.DescendantNodes().OfType<IdentifierNameSyntax>().Any(id => id.Identifier.Text == "dynamic"))
+            return "Dynamic typing is not allowed.";
+
+        // Check all identifiers, qualified names, and typeof expressions against blocklists
         foreach (var node in root.DescendantNodes())
         {
             var name = node switch
@@ -151,6 +158,32 @@ public class CodeExecutionTool : ITool
             // Check if any blocked type is used as an identifier
             if (node is IdentifierNameSyntax identNode && BlockedTypes.Contains(identNode.Identifier.Text))
                 return $"Access to type '{identNode.Identifier.Text}' is not allowed.";
+
+            // Block typeof() expressions that reference blocked types/namespaces
+            if (node is TypeOfExpressionSyntax typeOfExpr)
+            {
+                var typeName = typeOfExpr.Type.ToString();
+                foreach (var ns in BlockedNamespaces)
+                {
+                    if (typeName.Contains(ns, StringComparison.OrdinalIgnoreCase))
+                        return $"typeof() access to '{ns}' is not allowed.";
+                }
+                // Check the leaf type name
+                var leafType = typeName.Split('.').Last();
+                if (BlockedTypes.Contains(leafType))
+                    return $"typeof() access to '{leafType}' is not allowed.";
+            }
+
+            // Block string literals containing blocked namespace names (defense-in-depth against reflection)
+            if (node is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression))
+            {
+                var value = literal.Token.ValueText;
+                foreach (var ns in BlockedNamespaces)
+                {
+                    if (value.Contains(ns, StringComparison.OrdinalIgnoreCase))
+                        return $"String literals referencing '{ns}' are not allowed.";
+                }
+            }
         }
 
         return null;

@@ -1789,7 +1789,25 @@
     // ============================================================
 
     private static readonly Markdig.MarkdownPipeline MarkdownPipeline = new Markdig.MarkdownPipelineBuilder().Build();
-    private static readonly Ganss.Xss.HtmlSanitizer Sanitizer = new();
+    private static readonly Ganss.Xss.HtmlSanitizer Sanitizer = CreateSanitizer();
+
+    private static Ganss.Xss.HtmlSanitizer CreateSanitizer()
+    {
+        var sanitizer = new Ganss.Xss.HtmlSanitizer();
+        sanitizer.AllowedSchemes.Clear();
+        sanitizer.AllowedSchemes.Add("https");
+        sanitizer.AllowedSchemes.Add("http");
+        sanitizer.AllowedSchemes.Add("mailto");
+        sanitizer.PostProcessNode += (_, e) =>
+        {
+            if (e.Node is AngleSharp.Html.Dom.IHtmlAnchorElement anchor)
+            {
+                anchor.SetAttribute("rel", "noopener noreferrer");
+                anchor.SetAttribute("target", "_blank");
+            }
+        };
+        return sanitizer;
+    }
 
     private static string RenderMarkdown(string markdown) =>
         Sanitizer.Sanitize(Markdig.Markdown.ToHtml(markdown, MarkdownPipeline));
