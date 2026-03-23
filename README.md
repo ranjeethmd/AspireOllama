@@ -11,7 +11,7 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 - **Image Analysis with Follow-ups** - Upload images and ask follow-up questions; the system retrieves images from session history
 - **MCP Integration** - Connect to external MCP servers for extensible tool support
 - **A2A Protocol** - Agent-to-Agent communication with standardized discovery, task management, and peer-to-peer messaging
-- **Coordinator Agent** - Orchestrates multi-agent workflows with parallel execution, conflict resolution, and result aggregation
+- **Coordinator Agent** - Orchestrates multi-agent workflows with parallel execution and result aggregation
 - **Multi-Agent System** - Specialized AI agents (Planner, Reviewer, Research, Code, Coordinator) that collaborate on complex tasks
 - **RAG Knowledge Base** - Upload large documents (up to 100MB) to a global vector store; all chat sessions search it automatically
 - **Vector Search (Qdrant)** - Document chunks embedded via nomic-embed-text, stored in Qdrant with dot product similarity
@@ -25,7 +25,6 @@ A modern AI chat application built with **.NET Aspire** and **Ollama**, featurin
 - **Cloud-Native Architecture** - Built on .NET Aspire with automatic service discovery and health checks
 - **Redis Token Cache** - Distributed MSAL token cache replacing in-memory storage for scalability
 - **New Relic Observability** - Traces, metrics, and logs via OpenTelemetry OTLP with per-service naming
-- **Kubernetes Ready** - Full K8s manifests with Kustomize, nginx Ingress, and multi-stage Dockerfile
 - **Open WebUI** - Includes Ollama's Open WebUI for direct model interaction
 
 ## Screenshots
@@ -93,10 +92,6 @@ AspireOllama/
 │   ├── AspireOllama.A2A.ReviewerAgent/     # Quality review and validation
 │   ├── AspireOllama.A2A.ResearchAgent/     # Knowledge gathering and context
 │   └── AspireOllama.A2A.CodeAgent/         # Code generation and execution
-├── k8s/                          # Kubernetes deployment manifests
-│   ├── base/                     # Kustomize base (all resources)
-│   ├── build-images.sh           # Docker image build script
-│   └── deploy.sh                 # K8s deployment script
 ├── infra/terraform/              # Terraform for Azure AD setup
 └── Dockerfile                    # Multi-stage build for all .NET services
 ```
@@ -110,7 +105,7 @@ AspireOllama/
 | `AspireOllama.Shared` | Shared DTOs, OllamaModels constants, API communication models |
 | `AspireOllama.ServiceDefaults` | Common service config, auth (OIDC/OBO/JWT), OpenTelemetry with resource attributes, health checks |
 | `A2A/AspireOllama.A2A.Shared` | Server infrastructure (`AspireOllama.A2A.Shared`) + protocol models (`AspireOllama.A2A.Protocol`) |
-| `A2A/AspireOllama.A2A.CoordinatorAgent` | Multi-agent workflow orchestrator with parallel execution and conflict resolution |
+| `A2A/AspireOllama.A2A.CoordinatorAgent` | Multi-agent workflow orchestrator with parallel execution and result aggregation |
 | `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and complexity assessment |
 | `A2A/AspireOllama.A2A.ReviewerAgent` | Quality assurance agent for reviewing responses and code |
 | `A2A/AspireOllama.A2A.ResearchAgent` | Knowledge gathering and context synthesis agent |
@@ -205,7 +200,7 @@ AspireOllama includes specialized AI agents that communicate via the [Agent-to-A
 
 | Agent | Description | Skills |
 |-------|-------------|--------|
-| **Coordinator** | Orchestrates multi-agent workflows with AI-driven planning, parallel execution, conflict resolution, and aggregation. Knows all 17 skills across 4 agents (Planner: 3, Research: 4, Code: 5, Reviewer: 4). | orchestrate_task |
+| **Coordinator** | Orchestrates multi-agent workflows with AI-driven planning, parallel execution, and result aggregation. Knows all 17 skills across 4 agents (Planner: 3, Research: 4, Code: 5, Reviewer: 4). | orchestrate_task |
 | **Planner** | Task planning and complexity assessment | create_plan, assess_complexity, suggest_agents |
 | **Reviewer** | Quality assurance and validation | review_response, review_code, review_plan, provide_feedback |
 | **Research** | Knowledge gathering and context synthesis | search_knowledge, get_topic_details, gather_context, suggest_topics |
@@ -369,7 +364,7 @@ The system uses two LLMs behind a single unified persona — the user sees one A
 | Tool | Parameters | When Qwen3 calls it |
 |------|-----------|---------------------|
 | `calculator` | `session_id`, `expression` | Math and arithmetic |
-| `search_knowledge_base` | `session_id`, `query`, `top_k` | Uploaded document questions. Returns results with relevance scores (>0.5 threshold). |
+| `search_knowledge_base` | `session_id`, `query`, `top_k` | Uploaded document questions. Code filters at >0.5; system prompt instructs LLM to only use results >0.6. |
 | `analyze_image` | `session_id`, `instruction` | Image uploads and follow-up questions. Retrieves from request or session history. |
 | `web_search` | `session_id`, `query`, `max_results` | Current events, news, anything after LLM knowledge cutoff. Uses SerpAPI (Google). |
 
@@ -404,9 +399,8 @@ The Coordinator Agent orchestrates complex multi-agent workflows. The API servic
 
 ### Features
 - **Parallel execution** of independent subtasks via `Task.WhenAll`
-- **Conflict resolution** — reviewer detects contradictions, conflicting agents re-run with feedback
-- **Retry with backoff** — max 2 retries per subtask, exponential backoff, 5-minute timeout
-- **Result aggregation** — LLM synthesizes all agent outputs into a coherent response
+- **Retry with backoff** — max 1 retry per subtask, exponential backoff, 5-minute timeout
+- **Result aggregation** — LLM synthesizes all agent outputs (including reviewer feedback) into a coherent response
 - **Full artifact tracking** — each phase stored as a named artifact on the task
 
 ## User Sessions
@@ -415,7 +409,7 @@ Chat sessions are scoped by `userId` in MongoDB. Each user sees only their own s
 
 ## Timeouts
 
-Consistent 10-minute timeouts are configured across all services (Ollama HTTP client, MCP client, A2A client). The YARP gateway uses 15-minute timeouts for routes to the Coordinator and API Service to allow for multi-agent workflows.
+The resilience handler applies 15-minute timeouts for all HTTP clients (Ollama, MCP, A2A). The YARP gateway uses 15-minute timeouts for the API Service and Coordinator clusters, and 10-minute timeouts for individual A2A agents and MCP. Coordinator subtask timeout is 5 minutes.
 
 ## Heartbeat Logging
 
@@ -475,65 +469,7 @@ Each service reports:
 
 If the New Relic license key is empty, OTLP export is skipped — no impact on local dev.
 
-## Kubernetes Deployment
-
-Full K8s manifests are provided in `k8s/base/` using Kustomize.
-
-### Architecture
-
-In K8s, the Aspire YARP gateway is replaced by an **nginx Ingress** with the same routing rules:
-
-| Path | Backend |
-|------|---------|
-| `/api/*` | apiservice |
-| `/mcp/*` | mcpserver |
-| `/a2a/planner/*` | planner-agent |
-| `/a2a/reviewer/*` | reviewer-agent |
-| `/a2a/research/*` | research-agent |
-| `/a2a/code/*` | code-agent |
-| `/*` (default) | webfrontend |
-
-### Prerequisites
-
-- Kubernetes cluster with nginx Ingress controller
-- Container registry (e.g., ACR, Docker Hub)
-- GPU node for Ollama (nvidia.com/gpu resource)
-
-### Deploy
-
-```bash
-# 1. Edit k8s/base/secrets.yaml with real Azure AD and New Relic values
-# 2. Edit k8s/base/ingress.yaml with your domain
-# 3. Build and push Docker images
-./k8s/build-images.sh myregistry.azurecr.io v1.0.0
-
-# 4. Deploy to cluster
-./k8s/deploy.sh myregistry.azurecr.io v1.0.0
-
-# 5. Verify
-kubectl get pods -n aspireollama
-kubectl get ingress -n aspireollama
-```
-
-### K8s Resources
-
-| Resource | Description |
-|----------|-------------|
-| `namespace.yaml` | `aspireollama` namespace |
-| `configmap.yaml` | OTEL config, Azure AD common, service discovery, downstream APIs |
-| `secrets.yaml` | Azure AD credentials (web + backend), New Relic license key |
-| `redis.yaml` | Redis deployment + PVC for token cache |
-| `ollama.yaml` | Ollama deployment + GPU + PVC + model-pull Job |
-| `apiservice.yaml` | Chat API deployment + service |
-| `mcpserver.yaml` | MCP tools server deployment + service |
-| `webfrontend.yaml` | Blazor frontend deployment + service |
-| `planner-agent.yaml` | A2A Planner deployment + service |
-| `reviewer-agent.yaml` | A2A Reviewer deployment + service |
-| `research-agent.yaml` | A2A Research deployment + service |
-| `code-agent.yaml` | A2A Code deployment + service |
-| `ingress.yaml` | nginx Ingress (replaces YARP gateway) |
-
-### Docker Build
+## Docker Build
 
 A single multi-stage `Dockerfile` at the repo root builds any .NET service:
 
@@ -656,7 +592,7 @@ AspireOllama.AppHost/
 
 If you encounter timeout errors when uploading images:
 - The Qwen2.5-VL model requires significant processing time for images
-- HTTP timeouts are set to 10 minutes
+- HTTP timeouts are set to 15 minutes
 - Ensure Ollama has finished loading the model (check Aspire Dashboard logs)
 
 ### 500 Errors from Ollama

@@ -4,10 +4,11 @@ This document describes the authentication and authorization architecture for As
 
 ## Overview
 
-YARP (Yet Another Reverse Proxy) acts as the central gateway, exposing both API Service and MCP Server with different authentication configurations:
+YARP (Yet Another Reverse Proxy) acts as the central gateway, routing to all backend services. All backend services share a single audience (`api://{clientId}`) and use JWT Bearer validation with App Roles.
 
-- **API Service**: Authorization Code Flow (user identity)
-- **MCP Server**: On-Behalf-Of (OBO) Flow (user context preserved for tool scope)
+- **Web Frontend**: Authorization Code Flow with PKCE (user authentication via OIDC)
+- **Backend Services**: JWT Bearer validation (API, MCP, A2A agents — same audience)
+- **Service-to-Service**: OBO token exchange using the shared audience scope
 
 ## Architecture Diagram
 
@@ -41,34 +42,35 @@ YARP (Yet Another Reverse Proxy) acts as the central gateway, exposing both API 
 
 ### 1. Authorization Code Flow (User Authentication)
 
-Used for user-facing API endpoints. The user authenticates interactively and receives an access token.
+The Web frontend authenticates users via OIDC Authorization Code Flow with PKCE. YARP is a pass-through proxy — it does not perform authentication itself.
 
 ```
 ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│  User    │     │  YARP    │     │ Identity │     │   API    │
-│ (Browser)│     │ Gateway  │     │ Provider │     │ Service  │
+│  User    │     │   Web    │     │ Entra ID │     │   API    │
+│ (Browser)│     │ Frontend │     │(Azure AD)│     │ Service  │
 └────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘
      │                │                │                │
      │  1. Request    │                │                │
      │───────────────▶│                │                │
      │                │                │                │
-     │  2. Redirect to login           │                │
+     │  2. Redirect to Azure AD login  │                │
      │◀───────────────│                │                │
      │                │                │                │
-     │  3. Authenticate                │                │
+     │  3. Authenticate (PKCE)         │                │
      │────────────────────────────────▶│                │
      │                │                │                │
      │  4. Auth Code  │                │                │
      │◀────────────────────────────────│                │
      │                │                │                │
-     │  5. Code + Request              │                │
+     │  5. Code → Web │                │                │
      │───────────────▶│                │                │
      │                │  6. Exchange code for tokens    │
      │                │───────────────▶│                │
      │                │  7. Access + Refresh tokens     │
      │                │◀───────────────│                │
      │                │                │                │
-     │                │  8. Forward with Bearer token   │
+     │                │  8. OBO token → API Service     │
+     │                │    (via YARP gateway)           │
      │                │───────────────────────────────▶│
      │                │                │                │
      │  9. Response   │                │                │
@@ -78,40 +80,38 @@ Used for user-facing API endpoints. The user authenticates interactively and rec
 
 ### 2. On-Behalf-Of (OBO) Flow (Service-to-Service with User Context)
 
-When API Service needs to call MCP Server, it exchanges the user's token for a new token scoped to MCP Server. This preserves user identity for tool authorization.
+When a service needs to call another backend service, it acquires a token using the shared audience (`api://{clientId}/.default`). All backend services share the same audience — there are no per-service audiences.
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│   API    │     │ Identity │     │   YARP   │     │   MCP    │
-│ Service  │     │ Provider │     │ Gateway  │     │  Server  │
-└────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘
-     │                │                │                │
-     │ 1. User request with token      │                │
-     │ (needs MCP tool)                │                │
-     │                │                │                │
-     │ 2. OBO Token Request            │                │
-     │ (assertion: user_token,         │                │
-     │  scope: api://mcp-server/.default)               │
-     │───────────────▶│                │                │
-     │                │                │                │
-     │ 3. OBO Access Token             │                │
-     │ (audience: mcp-server,          │                │
-     │  subject: original user)        │                │
-     │◀───────────────│                │                │
-     │                │                │                │
-     │ 4. Call MCP with OBO token      │                │
-     │────────────────────────────────▶│                │
-     │                │                │ 5. Forward     │
-     │                │                │───────────────▶│
-     │                │                │                │
-     │                │                │ 6. Validate    │
-     │                │                │    token       │
-     │                │                │    (user ctx)  │
-     │                │                │                │
-     │ 7. Tool result │                │                │
-     │◀────────────────────────────────────────────────│
-     │                │                │                │
+┌──────────┐     ┌──────────┐     ┌──────────────┐
+│   Web    │     │ Entra ID │     │   Backend    │
+│ Frontend │     │ (Azure AD)│     │   Service    │
+└────┬─────┘     └────┬─────┘     └──────┬───────┘
+     │                │                   │
+     │ 1. User signs in (OIDC + PKCE)    │
+     │───────────────▶│                   │
+     │ 2. Tokens      │                   │
+     │◀───────────────│                   │
+     │                │                   │
+     │ 3. IDownstreamApi OBO exchange     │
+     │    (scope: api://{clientId}/.default)
+     │───────────────▶│                   │
+     │ 4. OBO token   │                   │
+     │    (aud: api://{clientId},         │
+     │     roles: [...], same user)       │
+     │◀───────────────│                   │
+     │                │                   │
+     │ 5. Call backend with OBO token     │
+     │────────────────────────────────────▶
+     │                │                   │
+     │                │    6. Validate JWT │
+     │                │       Check roles │
+     │                │                   │
+     │ 7. Response    │                   │
+     │◀────────────────────────────────────
 ```
+
+Service-to-service calls (e.g., API → MCP, API → A2A agents) use client credentials with the same shared audience via `ServiceTokenExtensions`.
 
 ## Token Audiences and Roles
 
@@ -223,84 +223,21 @@ ValidAudiences = new[] { azureAdOptions.Audience, clientId }
 
 ### Route Configuration
 
-```json
-{
-  "ReverseProxy": {
-    "Routes": {
-      "api-route": {
-        "ClusterId": "api-cluster",
-        "AuthorizationPolicy": "AuthCodePolicy",
-        "Match": {
-          "Path": "/api/{**catch-all}"
-        },
-        "Transforms": [
-          { "PathRemovePrefix": "/api" }
-        ]
-      },
-      "chat-route": {
-        "ClusterId": "api-cluster",
-        "AuthorizationPolicy": "AuthCodePolicy",
-        "Match": {
-          "Path": "/chat"
-        }
-      },
-      "sessions-route": {
-        "ClusterId": "api-cluster",
-        "AuthorizationPolicy": "AuthCodePolicy",
-        "Match": {
-          "Path": "/sessions/{**catch-all}"
-        }
-      },
-      "mcp-route": {
-        "ClusterId": "mcp-cluster",
-        "AuthorizationPolicy": "OboPolicy",
-        "Match": {
-          "Path": "/mcp/{**catch-all}"
-        },
-        "Transforms": [
-          { "PathRemovePrefix": "/mcp" }
-        ]
-      }
-    },
-    "Clusters": {
-      "api-cluster": {
-        "Destinations": {
-          "api": {
-            "Address": "https+http://apiservice"
-          }
-        }
-      },
-      "mcp-cluster": {
-        "Destinations": {
-          "mcp": {
-            "Address": "https+http://mcpserver"
-          }
-        }
-      }
-    }
-  }
-}
-```
+The gateway routes are configured in `AspireOllama.Gateway/appsettings.json`. Routes use Aspire service discovery addresses (`https+http://servicename`):
 
-### Authentication Configuration
+| Route | Path | Cluster | Timeout |
+|-------|------|---------|---------|
+| `api-route` | `/api/{**catch-all}` | apiservice | 15 min |
+| `mcp-route` | `/mcp/{**catch-all}` | mcpserver | 10 min |
+| `a2a-coordinator-route` | `/a2a/coordinator/{**catch-all}` | coordinator-agent | 15 min |
+| `a2a-planner-route` | `/a2a/planner/{**catch-all}` | planner-agent | 10 min |
+| `a2a-reviewer-route` | `/a2a/reviewer/{**catch-all}` | reviewer-agent | 10 min |
+| `a2a-research-route` | `/a2a/research/{**catch-all}` | research-agent | 10 min |
+| `a2a-code-route` | `/a2a/code/{**catch-all}` | code-agent | 10 min |
+| `scalar-route` | `/scalar/{**catch-all}` | scalar | — |
+| `web-route` | `/{**catch-all}` | webfrontend | — |
 
-```json
-{
-  "AzureAd": {
-    "Instance": "https://login.microsoftonline.com/",
-    "TenantId": "{tenant-id}",
-    "ClientId": "{gateway-client-id}",
-    "ClientSecret": "{gateway-client-secret}",
-    "CallbackPath": "/signin-oidc",
-    "SignedOutCallbackPath": "/signout-callback-oidc"
-  },
-  "DownstreamApis": {
-    "McpServer": {
-      "Scopes": ["api://aspireollama-mcp/.default"]
-    }
-  }
-}
-```
+Each backend service validates JWT tokens independently. The gateway itself does not perform authentication — it passes tokens through to the downstream services.
 
 ## Identity Provider Setup (Entra ID)
 
@@ -318,7 +255,7 @@ Managed by Terraform in `infra/terraform/`. Two app registrations only.
 ```
 Application ID URI: api://{clientId}
 Delegated Scope: access_as_user (enables OBO)
-App Roles: 31 roles across Api, Mcp, A2A agents (see AuthScopes.cs)
+App Roles: 32 roles across Api, Mcp, A2A agents (see AuthScopes.cs)
 Token version: v2.0
 ```
 
@@ -342,9 +279,8 @@ No app roles are defined on this registration — roles come from the API's acce
 ```
 AspireOllama.Gateway/
 ├── Program.cs                 # Gateway configuration
-├── appsettings.json          # YARP routes + auth config
-├── Transforms/
-│   └── OboTokenTransform.cs  # Injects OBO token for MCP routes
+├── appsettings.json          # YARP routes + cluster config
+├── appsettings.Docker.json   # Docker-specific overrides
 └── AspireOllama.Gateway.csproj
 ```
 
@@ -353,73 +289,28 @@ AspireOllama.Gateway/
 | Package | Purpose |
 |---------|---------|
 | `Yarp.ReverseProxy` | Reverse proxy functionality |
-| `Microsoft.Identity.Web` | Entra ID authentication |
-| `Microsoft.Identity.Web.TokenAcquisition` | OBO token acquisition |
+| `LettuceEncrypt` | Let's Encrypt TLS certificates |
+| `Microsoft.Extensions.ServiceDiscovery.Yarp` | Aspire service discovery integration |
 
-### OBO Token Transform
+### Token Propagation
 
-```csharp
-public class OboTokenTransform : ITransformProvider
-{
-    public void Apply(TransformBuilderContext context)
-    {
-        if (context.Route.RouteId == "mcp-route")
-        {
-            context.AddRequestTransform(async transformContext =>
-            {
-                var tokenAcquisition = transformContext.HttpContext
-                    .RequestServices.GetRequiredService<ITokenAcquisition>();
-
-                var token = await tokenAcquisition.GetAccessTokenForUserAsync(
-                    scopes: ["api://aspireollama-mcp/.default"],
-                    authenticationScheme: OpenIdConnectDefaults.AuthenticationScheme);
-
-                transformContext.ProxyRequest.Headers.Authorization =
-                    new AuthenticationHeaderValue("Bearer", token);
-            });
-        }
-    }
-}
-```
+The gateway passes tokens through to backend services via standard YARP proxy behavior. OBO token exchange is handled by the Web frontend (`IDownstreamApi`) and the API service (`ServiceTokenExtensions`), not by the gateway itself.
 
 ## MCP Server Authentication
 
-### JWT Bearer Configuration
+### Configuration
+
+The MCP server uses `AddBackendAuthentication()` for JWT Bearer validation (same as all backend services). Per-tool role enforcement is handled by `McpToolRoleMiddleware`, which inspects `tools/call` requests and checks the user's roles against the `McpToolRoles` mapping in `AuthScopes.cs`.
 
 ```csharp
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+// MCP Server Program.cs
+builder.AddServiceDefaults();
+builder.AddBackendAuthentication();
+builder.Services.AddMcpServer(...).WithHttpTransport().WithToolsFromAssembly();
 
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("ToolsExecute", policy =>
-        policy.RequireScope("Tools.Execute"));
-});
-```
-
-### Tool Authorization
-
-MCP tools can access user context from the validated token:
-
-```csharp
-[McpServerToolType]
-public class SecureWeatherTool
-{
-    [McpServerTool("get_weather")]
-    [Description("Get weather for a city (requires Tools.Execute scope)")]
-    public string GetWeather(
-        [Description("City name")] string city,
-        HttpContext httpContext)
-    {
-        var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var userName = httpContext.User.FindFirst("name")?.Value;
-
-        // Log or audit tool usage per user
-        // Apply user-specific tool restrictions
-
-        return $"Weather for {city}: 22°C, Sunny (requested by {userName})";
-    }
-}
+app.UseBackendAuthentication();
+app.UseMiddleware<McpToolRoleMiddleware>();  // Per-tool RBAC
+app.MapMcp("/mcp");
 ```
 
 ## Security Considerations
@@ -436,58 +327,18 @@ public class SecureWeatherTool
 
 ### Rate Limiting
 
-Configure per-user rate limits on tool execution:
-
-```csharp
-builder.Services.AddRateLimiter(options =>
-{
-    options.AddPolicy("ToolRateLimit", context =>
-        RateLimitPartition.GetTokenBucketLimiter(
-            partitionKey: context.User.Identity?.Name ?? "anonymous",
-            factory: _ => new TokenBucketRateLimiterOptions
-            {
-                TokenLimit = 100,
-                ReplenishmentPeriod = TimeSpan.FromMinutes(1),
-                TokensPerPeriod = 10
-            }));
-});
-```
-
-### Audit Logging
-
-All tool executions are logged with user context:
+Per-user rate limiting is applied on all A2A endpoints (except agent card discovery) via `A2ARateLimiting.cs`. Partitions by `oid` JWT claim → IP fallback → "anonymous". Configuration:
 
 ```json
-{
-  "timestamp": "2024-01-15T10:30:00Z",
-  "userId": "user@example.com",
-  "toolName": "get_weather",
-  "arguments": { "city": "London" },
-  "result": "success",
-  "executionTimeMs": 45
-}
+{ "A2A": { "RateLimit": { "PermitLimit": 20, "WindowSeconds": 60, "QueueLimit": 5 } } }
 ```
 
-## Development Configuration
-
-For local development without full identity provider setup:
-
-```json
-{
-  "Authentication": {
-    "Development": {
-      "Enabled": true,
-      "DefaultUser": "dev@localhost",
-      "DefaultScopes": ["Chat.Read", "Chat.Write", "Tools.Execute"]
-    }
-  }
-}
-```
+Returns 429 Too Many Requests when exceeded.
 
 ## Deployment Checklist
 
 - [ ] Register applications in Entra ID (see `infra/terraform/`)
-- [ ] Configure app secrets in Key Vault or K8s Secrets (`k8s/base/secrets.yaml`)
+- [ ] Configure app secrets in Key Vault or environment-specific secrets
 - [ ] Set up redirect URIs for each environment
 - [ ] Configure CORS policies
 - [ ] Enable HTTPS everywhere
@@ -498,9 +349,9 @@ For local development without full identity provider setup:
 - [x] Role-based document upload — `Api.Admin` / `Api.Documents.Manage` on access token
 - [x] User profile from access token — `GET /api/me` returns roles, cached by `UserRoleService`
 - [x] User sessions scoped by userId — MongoDB queries filter by userId from access token
-- [x] Consistent timeouts — 10 minutes across all services, 15 minutes for gateway to coordinator/apiservice
+- [x] Consistent timeouts — 15 minutes for resilience handler and HTTP clients, gateway: 15 min for API/Coordinator, 10 min for other agents/MCP
 - [x] Heartbeat logging suppressed — `ServiceDefaults` filters health-check logs to Warning level
-- [x] Coordinator Agent — AI-driven planning, parallel execution, conflict resolution, knows all 17 skills across 4 agents
+- [x] Coordinator Agent — AI-driven planning, parallel execution, result aggregation, knows all 17 skills across 4 agents
 - [x] Dual-model architecture — Qwen3 (32B) for text/tools, Qwen2.5-VL (32B) for vision, model names centralized in `OllamaModels.cs`
 - [x] RAG as a tool — `search_knowledge_base` with relevance scores and `top_k` parameter
 - [x] Image analysis as a tool — `analyze_image` retrieves from session history
@@ -513,4 +364,4 @@ For local development without full identity provider setup:
 - [x] Per-skill authorization — `ISkillAuthorizationProvider` interface, each agent maps messages to skills and skill roles from `AuthScopes.A2ASkillRoles`, enforced on `message/send` and `message/stream`, returns 403 Forbid
 - [ ] Test OBO flow end-to-end
 - [ ] Verify tool scope restrictions
-- [ ] Deploy to Kubernetes (`k8s/base/`) with nginx Ingress replacing YARP gateway
+- [ ] Deploy to production (Docker or Kubernetes)

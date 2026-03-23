@@ -240,7 +240,7 @@ The base class `A2AServerBase.AddTextArtifact` signature is `(task, text, name)`
 - Call `web_search` for current events (LLM has knowledge cutoff)
 - NOT search RAG when images or documents are uploaded inline
 - Pass `sessionId` to every tool call
-- Only use RAG results with relevance > 0.6
+- Only use RAG results with relevance > 0.6 (note: `RagRetrievalService` code filters at > 0.5, but the system prompt instructs the LLM to only use results > 0.6 — this is intentional two-tier filtering)
 
 ## Gotchas
 
@@ -255,3 +255,11 @@ The base class `A2AServerBase.AddTextArtifact` signature is `(task, text, name)`
 - **SerpAPI for web search** (not Google Custom Search which requires billing). Key in `appsettings.Secrets.json`.
 - **Markdig** renders agent chat responses and workflow Final Result as HTML. Uses default pipeline (no `UseAdvancedExtensions` — removed in Markdig 1.1.1). Pipeline is static in Chat.razor; Agents.razor creates it as a local variable per call.
 - **Control flow style**: Use switch expressions for multi-case branching (3+ cases). Use plain `if` for single conditions. Do not use switch/enum when a simple boolean check suffices.
+
+## Documentation Maintenance
+
+When reviewing or auditing documentation (*.md files), **do not close the issue as a reviewer**. Instead:
+1. Validate each claim against the actual code (code is the primary source of truth).
+2. List all discrepancies found with file, line, and correct value from code.
+3. Fix the documentation directly — edit every .md file to match the code.
+4. If a discrepancy is ambiguous (e.g., code vs code mismatch like RagRetrievalService threshold vs system prompt threshold), document both values and where each lives.

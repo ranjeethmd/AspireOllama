@@ -4,7 +4,7 @@ This project contains Playwright UI tests for testing the A2A Agents page.
 
 ## Prerequisites
 
-1. .NET 8.0+ SDK
+1. .NET 10.0+ SDK
 2. The AspireOllama application running
 
 ## Setup
@@ -68,8 +68,9 @@ dotnet test --settings .runsettings
 ### Run specific test class
 ```bash
 dotnet test --filter "FullyQualifiedName~AgentsPageTests"
-dotnet test --filter "FullyQualifiedName~ToolTesterTests"
 dotnet test --filter "FullyQualifiedName~AgentsWorkflowTests"
+dotnet test --filter "FullyQualifiedName~ChatPageTests"
+dotnet test --filter "FullyQualifiedName~GatewayApiTests"
 ```
 
 ### Run a specific test
@@ -82,33 +83,34 @@ dotnet test --filter "Name=AgentsPage_ShouldLoad"
 | File | Description |
 |------|-------------|
 | `AgentsPageTests.cs` | Basic page load and navigation tests |
-| `ToolTesterTests.cs` | Tests for the Tool Tester tab |
 | `AgentsWorkflowTests.cs` | Tests for the Workflow tab and sequence diagram |
+| `ChatPageTests.cs` | Tests for the Chat page |
+| `GatewayApiTests.cs` | Tests for Gateway API routing |
 | `GlobalSetup.cs` | One-time setup to install Playwright browsers |
 
 ## What the tests verify
 
 ### AgentsPageTests
 - Page loads correctly
-- All 4 agents are displayed
+- All 5 agents are displayed (Coordinator, Planner, Reviewer, Research, Code)
 - Tool Tester and Workflow tabs exist
 - Navigation back to Chat works
 - Refresh button exists
 
-### ToolTesterTests
-- Selecting an agent shows its tools
-- Clicking a tool shows parameter inputs
-- Executing a tool shows results
-- Results display execution time
-
 ### AgentsWorkflowTests
 - Running a workflow shows sequence diagram
-- MCP function names are displayed
 - Agent names are shown for each step
 - Step numbers are in sequence
 - Execution times are displayed
 - Results can be expanded
 - Call summary shows agent statistics
+
+### ChatPageTests
+- Chat page loads correctly
+- Session management works
+
+### GatewayApiTests
+- Gateway routes requests correctly to backend services
 
 ## Troubleshooting
 

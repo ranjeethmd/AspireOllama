@@ -24,7 +24,7 @@ This document provides a comprehensive visual overview of the AspireOllama archi
 16. [Infrastructure: Redis Token Cache](#infrastructure-redis-token-cache)
 17. [Infrastructure: Observability (New Relic)](#infrastructure-observability-new-relic)
 18. [Infrastructure: YARP Gateway & Let's Encrypt](#infrastructure-yarp-gateway--lets-encrypt)
-19. [Infrastructure: Kubernetes Deployment](#infrastructure-kubernetes-deployment)
+19. [Docker Deployment](#docker-deployment)
 20. [User Sessions & Scoping](#user-sessions--scoping)
 21. [Timeout Configuration](#timeout-configuration)
 22. [Heartbeat Logging](#heartbeat-logging)
@@ -613,10 +613,15 @@ AspireOllama is a distributed AI chat application with the following key capabil
     ┌─────────────────────────────────────────────────────────────────────┐
     │                                                                     │
     │   Each agent exposes:                                               │
-    │   • GET  /.well-known/agent.json  (Agent Card - discovery)          │
-    │   • POST /a2a/message:send        (Send message, get task)          │
-    │   • GET  /a2a/tasks/{id}          (Get task status/results)         │
-    │   • POST /a2a/tasks/{id}:cancel   (Cancel running task)             │
+    │   • GET  /.well-known/agent.json    (Agent Card - discovery, unauth)│
+    │   • POST /a2a/message:send          (Send message, per-skill auth)  │
+    │   • POST /a2a/message:stream        (Stream response, per-skill)    │
+    │   • GET  /a2a/tasks/{id}            (Get task status/results)       │
+    │   • GET  /a2a/tasks                 (List all tasks)                │
+    │   • POST /a2a/tasks/{id}:cancel     (Cancel running task)           │
+    │   • POST /a2a/tasks/{id}:subscribe  (Subscribe to task events)      │
+    │   • POST /a2a/tasks/{id}/pushNotification (Push notification CRUD)  │
+    │   • GET  /a2a/agent/card            (Extended card, authenticated)  │
     │                                                                     │
     └─────────────────────────────────────────────────────────────────────┘
                                       │
@@ -1025,9 +1030,9 @@ Protocol models use `AspireOllama.A2A.Protocol` namespace with spec-aligned name
              │                        │           │            │            │
              ▼                        ▼           ▼            ▼            ▼
     ┌─────────────────────────────────────┐  ┌────────┐  ┌────────┐  ┌────────┐
-    │           ChatDbContext             │  │ Vision │  │ Tools  │  │Document│
-    │              (SQLite)               │  │ Client │  │ Client │  │ Process│
-    │                                     │  │(qwen2.5vl) │  │(llama) │  │ Service│
+    │        MongoDB Collections          │  │ Vision │  │ Tools  │  │Document│
+    │  (sessions + messages by userId)    │  │ Client │  │ Client │  │ Process│
+    │                                     │  │(qwen2.5vl) │  │(qwen3) │  │ Service│
     └─────────────────────────────────────┘  └────────┘  └───┬────┘  └────────┘
                                                              │
                                              ┌───────────────┼───────────────┐
@@ -1170,8 +1175,8 @@ Protocol models use `AspireOllama.A2A.Protocol` namespace with spec-aligned name
     │   ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐  │
     │   │                 │   │                 │   │                 │  │
     │   │  Retry Logic    │   │ Extended        │   │  Graceful       │  │
-    │   │  (MCP: 3x)      │   │ Timeouts        │   │  Degradation    │  │
-    │   │                 │   │ (10 min)        │   │                 │  │
+    │   │  (1x retry)     │   │ Timeouts        │   │  Degradation    │  │
+    │   │                 │   │ (15 min)        │   │                 │  │
     │   └─────────────────┘   └─────────────────┘   └─────────────────┘  │
     │                                                                     │
     └─────────────────────────────────────────────────────────────────────┘
@@ -1213,9 +1218,9 @@ Protocol models use `AspireOllama.A2A.Protocol` namespace with spec-aligned name
     │                            SERVICES                                   │
     │                                                                       │
     │   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                │
-    │   │ Microsoft   │   │    Model    │   │   Entity    │                │
-    │   │ Extensions  │   │   Context   │   │  Framework  │                │
-    │   │    .AI      │   │  Protocol   │   │    Core     │                │
+    │   │ Microsoft   │   │    Model    │   │  MongoDB    │                │
+    │   │ Extensions  │   │   Context   │   │   Driver    │                │
+    │   │    .AI      │   │  Protocol   │   │             │                │
     │   └─────────────┘   └─────────────┘   └─────────────┘                │
     │                                                                       │
     └───────────────────────────────────────────────────────────────────────┘
@@ -1274,16 +1279,15 @@ API Service ──→ Coordinator Agent (single A2A call)
                   ├─ Phase 2: Create plan ──────────→ Planner
                   ├─ Phase 3: Execute subtasks ─────→ Research ──┐
                   │                                   Code ──────┤ (parallel)
-                  ├─ Phase 4: Review + conflicts ───→ Reviewer   │
-                  │   ├─ Conflicts found? ──→ Re-run with feedback
-                  │   └─ No conflicts ──→ continue
+                  ├─ Phase 4: Review ────────────────→ Reviewer   │
+                  │   └─ Feedback included in aggregation
                   └─ Phase 5: Aggregate results ────→ Local LLM (Qwen3)
                                                       │
                                                       ▼
                                                Coherent response
 ```
 
-**Error handling**: 2 retries per subtask, exponential backoff, 5-minute timeout.
+**Error handling**: 1 retry per subtask, exponential backoff, 5-minute timeout.
 
 ---
 
@@ -1347,7 +1351,7 @@ MongoDB stores chat persistence, Qdrant stores document vectors for RAG.
 │  OllamaEmbeddingService.GetEmbeddingAsync()                        │
 │    │                                                                │
 │    ▼                                                                │
-│  Qdrant.SearchAsync() — dot product, top 5, score > 0.3            │
+│  Qdrant.SearchAsync() — dot product, top 5, score > 0.5            │
 │  (searches ALL documents globally)                                  │
 │    │                                                                │
 │    ▼                                                                │
@@ -1517,48 +1521,15 @@ The YARP Gateway (`AspireOllama.Gateway`) is a standalone project that serves as
 
 ---
 
-## Infrastructure: Kubernetes Deployment
+## Docker Deployment
 
-In Kubernetes, the YARP Gateway runs as a deployment with a LoadBalancer or Ingress in front.
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Kubernetes Cluster                           │
-│                        Namespace: aspireollama                      │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                YARP Gateway (+ Let's Encrypt)                │   │
-│  │  /api/*  → apiservice      /a2a/planner/*  → planner-agent  │   │
-│  │  /mcp/*  → mcpserver       /a2a/reviewer/* → reviewer-agent │   │
-│  │  /scalar/* → scalar        /a2a/research/* → research-agent │   │
-│  │  /*      → webfrontend     /a2a/code/*     → code-agent     │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                │                                    │
-│       ┌──────────┬─────────────┼─────────────┬──────────┐          │
-│       ▼          ▼             ▼             ▼          ▼          │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐    │
-│  │   Web   │ │   API   │ │   MCP   │ │  A2A x4 │ │  Ollama │    │
-│  │Frontend │ │ Service │ │ Server  │ │ Agents  │ │  (GPU)  │    │
-│  └────┬────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘    │
-│       │                                                            │
-│       ▼                                                            │
-│  ┌─────────┐     ConfigMaps:          Secrets:                     │
-│  │  Redis  │     • otel-config        • azure-ad-web               │
-│  │  (PVC)  │     • service-discovery  • azure-ad-backend           │
-│  └─────────┘     • downstream-apis    • newrelic                   │
-│                  • azure-ad-common                                  │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Docker build** uses a single multi-stage `Dockerfile`:
+**Docker build** uses a single multi-stage `Dockerfile` at the repo root:
 ```bash
 docker build --build-arg PROJECT=AspireOllama.Web -t aspireollama-web .
+docker build --build-arg PROJECT=AspireOllama.ApiService -t aspireollama-apiservice .
 ```
 
-**Deploy** with Kustomize:
-```bash
-kubectl apply -k k8s/base/
-```
+Docker-specific configuration is in `appsettings.Docker.json` files per service, using `ASPNETCORE_ENVIRONMENT=Docker`.
 
 ---
 
@@ -1591,15 +1562,18 @@ Consistent timeouts are configured across all services to handle long-running LL
 ┌────────────────────────────────┬──────────────────────┐
 │  Connection                    │  Timeout             │
 ├────────────────────────────────┼──────────────────────┤
-│  Ollama HTTP client            │  10 minutes          │
-│  MCP client                    │  10 minutes          │
-│  A2A agent client              │  10 minutes          │
-│  Gateway → Coordinator/API     │  15 minutes          │
-│  Gateway → other services      │  10 minutes          │
+│  Resilience handler (all HTTP) │  15 minutes          │
+│  API Service HTTP client       │  15 minutes          │
+│  Gateway → API Service         │  15 minutes          │
+│  Gateway → Coordinator         │  15 minutes          │
+│  Gateway → MCP/other agents   │  10 minutes          │
+│  Coordinator subtask           │   5 minutes          │
+│  Agent discovery               │   5 seconds          │
+│  Code execution sandbox        │   5 seconds          │
 └────────────────────────────────┴──────────────────────┘
 ```
 
-The 15-minute gateway timeout for Coordinator and API Service routes allows multi-agent workflows to complete without premature termination.
+The 15-minute timeouts for API Service and Coordinator allow multi-agent workflows to complete without premature termination. Individual agents get 10-minute gateway timeouts.
 
 ---
 

@@ -78,9 +78,11 @@ For each role below:
 | Display Name | Value | Description |
 |---|---|---|
 | API Access | `Api.Access` | Coarse access to the API Service |
+| Admin | `Api.Admin` | Admin access (document upload, management) |
 | Read Chat | `Api.Chat.Read` | Read chat messages and session history |
 | Write Chat | `Api.Chat.Write` | Send chat messages and call agents |
 | Manage Sessions | `Api.Sessions.Manage` | Create and delete chat sessions |
+| Manage Documents | `Api.Documents.Manage` | Upload documents to RAG knowledge base |
 
 ### MCP Server Roles
 
@@ -91,6 +93,13 @@ For each role below:
 | Get Weather | `Mcp.Tools.GetWeather` | Use the weather tool |
 | Convert Units | `Mcp.Tools.ConvertUnits` | Use the unit conversion tool |
 
+### Coordinator Agent Roles
+
+| Display Name | Value | Description |
+|---|---|---|
+| Coordinator Access | `A2A.Coordinator.Access` | Coarse access to Coordinator agent |
+| Orchestrate Task | `A2A.Coordinator.Orchestrate` | Run multi-agent workflows |
+
 ### Planner Agent Roles
 
 | Display Name | Value | Description |
@@ -99,7 +108,10 @@ For each role below:
 | Create Plan | `A2A.Planner.CreatePlan` | Create task plans |
 | Assess Complexity | `A2A.Planner.AssessComplexity` | Assess task complexity |
 | Suggest Agents | `A2A.Planner.SuggestAgents` | Get agent suggestions for a task |
-| Orchestrate Workflow | `A2A.Planner.OrchestrateWorkflow` | Run multi-agent workflows |
+
+<!-- REVIEWER: Terraform (main.tf) still defines `A2A.Planner.OrchestrateWorkflow` as a Planner role,
+     but it is NOT enforced in AuthScopes.cs. Orchestration is the Coordinator's responsibility
+     (A2A.Coordinator.Orchestrate). Consider removing the orphaned role from Terraform. -->
 
 ### Reviewer Agent Roles
 
@@ -132,7 +144,7 @@ For each role below:
 | Generate Tests | `A2A.Code.GenerateTests` | Generate test code |
 | Refactor Code | `A2A.Code.RefactorCode` | Refactor code |
 
-**Total: 29 App Roles + 1 Delegated Scope**
+**Total: 32 App Roles + 1 Delegated Scope**
 
 ---
 
@@ -183,7 +195,7 @@ This allows the Web app to acquire OBO tokens with `audience: api://aspireollama
 | **Read-Only Viewer** | `Api.Chat.Read` |
 | **Standard User** | `Api.Chat.Read`, `Api.Chat.Write`, `Api.Sessions.Manage`, `Mcp.Access`, `Mcp.Tools.GetTime`, `Mcp.Tools.GetWeather`, `Mcp.Tools.ConvertUnits` |
 | **Power User** | All Standard User roles + `A2A.Planner.Access`, `A2A.Reviewer.Access`, `A2A.Research.Access`, `A2A.Code.Access` |
-| **Admin** | All 29 roles |
+| **Admin** | All 32 roles |
 
 > Note: Azure AD requires a separate assignment per role. For bulk assignment, use security groups — assign roles to the group, then add users to the group.
 
@@ -259,6 +271,7 @@ Per-tool role enforcement via `McpToolRoleMiddleware`:
 
 | Agent | Route | Required Role |
 |---|---|---|
+| Coordinator | `/a2a/coordinator/*` | `A2A.Coordinator.Access` |
 | Planner | `/a2a/planner/*` | `A2A.Planner.Access` |
 | Reviewer | `/a2a/reviewer/*` | `A2A.Reviewer.Access` |
 | Research | `/a2a/research/*` | `A2A.Research.Access` |
@@ -272,6 +285,7 @@ The Aspire YARP gateway (configured in `AppHost.cs` via `AddYarp`) routes traffi
 |---|---|---|
 | `/api/*` | API Service | Required (JWT Bearer) |
 | `/mcp/*` | MCP Server | Required (JWT Bearer) |
+| `/a2a/coordinator/*` | Coordinator Agent | Required (JWT Bearer) |
 | `/a2a/planner/*` | Planner Agent | Required (JWT Bearer) |
 | `/a2a/reviewer/*` | Reviewer Agent | Required (JWT Bearer) |
 | `/a2a/research/*` | Research Agent | Required (JWT Bearer) |
@@ -408,7 +422,7 @@ All files involved in the Azure AD setup, grouped by purpose.
 
 | File | Purpose |
 |---|---|
-| `infra/terraform/main.tf` | Creates both app registrations, 29 app roles, delegated scope, service principals, and client secrets |
+| `infra/terraform/main.tf` | Creates both app registrations, 32 app roles, delegated scope, service principals, and client secrets |
 | `infra/terraform/variables.tf` | Input variables: `tenant_id`, redirect URIs, secret expiry |
 | `infra/terraform/outputs.tf` | Outputs client IDs, secrets, audience URI, and appsettings templates |
 | `infra/terraform/terraform.tfvars.example` | Template — copy to `terraform.tfvars` and set your tenant ID |
@@ -421,12 +435,12 @@ All files involved in the Azure AD setup, grouped by purpose.
 | `BackendAuthExtensions.cs` | Adds JWT Bearer authentication for backend services with `roles` claim mapping |
 | `FrontendAuthExtensions.cs` | Adds OIDC Authorization Code Flow with PKCE + OBO token acquisition for Web |
 | `ServiceTokenExtensions.cs` | Service-to-service token propagation (OBO and Client Credentials) |
-| `AuthScopes.cs` | Centralized constants for all 29 RBAC roles and tool/agent role mappings |
-| `McpToolScopeMiddleware.cs` | Per-tool RBAC enforcement for MCP tools based on user roles |
+| `AuthScopes.cs` | Centralized constants for all 32 RBAC roles and tool/agent role mappings |
+| `McpToolScopeMiddleware.cs` | Per-tool RBAC enforcement for MCP tools based on user roles (class name: `McpToolRoleMiddleware`) |
 
 ### Gateway
 
-The YARP gateway is configured in `AppHost.cs` via `AddYarp("gateway")` (Aspire built-in). No separate Gateway project needed.
+The YARP gateway is a separate project (`AspireOllama.Gateway/`) with routes configured in `appsettings.json`. It uses YARP with Aspire service discovery and LettuceEncrypt for TLS.
 
 ### Application Settings
 
@@ -446,6 +460,7 @@ Terraform generates `appsettings.Secrets.json` for each service with `AzureAd` c
 | `AspireOllama.Web/Program.cs` | Calls `AddFrontendAuthentication()` for OIDC + IDownstreamApi |
 | `AspireOllama.ApiService/Program.cs` | Calls `AddBackendAuthentication()` for JWT Bearer |
 | `AspireOllama.McpServer/Program.cs` | Calls `AddBackendAuthentication()` + MCP tool scope middleware |
+| `A2A/AspireOllama.A2A.CoordinatorAgent/Program.cs` | Calls `AddBackendAuthentication()` for JWT Bearer |
 | `A2A/AspireOllama.A2A.PlannerAgent/Program.cs` | Calls `AddBackendAuthentication()` for JWT Bearer |
 | `A2A/AspireOllama.A2A.ReviewerAgent/Program.cs` | Calls `AddBackendAuthentication()` for JWT Bearer |
 | `A2A/AspireOllama.A2A.ResearchAgent/Program.cs` | Calls `AddBackendAuthentication()` for JWT Bearer |

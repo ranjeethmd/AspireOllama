@@ -4,7 +4,7 @@ Creates both Azure AD app registrations, security groups, role assignments, and 
 
 ## What Terraform Manages
 
-- **AspireOllama** — API resource server with 1 delegated scope (`access_as_user`) + 29 App Roles
+- **AspireOllama** — API resource server with 1 delegated scope (`access_as_user`) + 32 App Roles
 - **AspireOllama-Web** — Blazor frontend with `access_as_user` delegated permission + admin consent
 - **4 Security Groups** — Read-Only Viewer, Standard User, Power User, Admin (with role assignments)
 - **appsettings.Secrets.json** — Auto-generated config files for all 7 services (gitignored)
@@ -34,6 +34,7 @@ After apply, Terraform writes `appsettings.Secrets.json` into each service proje
 | AspireOllama.ApiService | `appsettings.Secrets.json` |
 | AspireOllama.McpServer | `appsettings.Secrets.json` |
 | AspireOllama.Web | `appsettings.Secrets.json` |
+| A2A CoordinatorAgent | `appsettings.Secrets.json` |
 | A2A PlannerAgent | `appsettings.Secrets.json` |
 | A2A ReviewerAgent | `appsettings.Secrets.json` |
 | A2A ResearchAgent | `appsettings.Secrets.json` |
