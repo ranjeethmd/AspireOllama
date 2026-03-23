@@ -31,11 +31,11 @@ public class VisionTool : ITool
 
     [Description("Analyze images from the conversation. Retrieves the most recent images from the chat session and answers questions about them.")]
     public async Task<string> AnalyzeAsync(
-        [Description("The chat session ID")] string session_id,
+        [Description("The chat session ID")] string sessionId,
         [Description("What to analyze or describe about the image(s)")] string instruction,
         CancellationToken ct = default)
     {
-        _logger.LogInformation("Image tool: session={SessionId}, instruction={Instruction}", session_id, instruction);
+        _logger.LogInformation("Image tool: session={SessionId}, instruction={Instruction}", sessionId, instruction);
 
         List<ImageAttachment> images;
         if (_currentRequestImages is { Count: > 0 })
@@ -44,7 +44,7 @@ public class VisionTool : ITool
         }
         else
         {
-            var sessionHistory = await _messageService.GetBySessionIdAsync(session_id);
+            var sessionHistory = await _messageService.GetBySessionIdAsync(sessionId);
             var lastImageMsg = sessionHistory.LastOrDefault(m => m.Images.Count > 0);
             if (lastImageMsg is null)
                 return "No images found in this conversation. Ask the user to upload an image.";

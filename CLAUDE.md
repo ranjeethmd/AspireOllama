@@ -17,7 +17,7 @@ The app is locked by running processes — stop the app before rebuilding if you
 
 - **Two LLM models**: Qwen3 (32B) for text/tools, Qwen2.5-VL (32B) for vision. Model names centralized in `AspireOllama.Shared/OllamaModels.cs`.
 - **Single persona**: User sees one AI assistant. AiChatService routes images to Qwen2.5-VL via `VisionTool`, text to Qwen3 with tools.
-- **Tools registered via IToolRegistry** in `Services/Tools/`. Every tool method takes `session_id` as first parameter. AiChatService gets tools from the registry — no inline tool definitions.
+- **Tools registered via IToolRegistry** in `Services/Tools/`. Every tool method takes `sessionId` as first parameter. AiChatService gets tools from the registry — no inline tool definitions.
 - **RAG**: Documents uploaded via `/documents` page → chunked → embedded (nomic-embed-text) → stored in Qdrant. Chat searches via `RagSearchTool` with dot product similarity.
 - **MongoDB**: Chat sessions scoped by `userId` from access token. No SQLite.
 - **A2A Protocol**: 5 agents (Coordinator, Planner, Reviewer, Research, Code). Coordinator is the hub — AI-driven planning, parallel execution, aggregation.
@@ -72,7 +72,7 @@ A2A/
 
 ### Adding a new tool
 1. Create `MyTool.cs` in `Services/Tools/` implementing `ITool`
-2. Method signature: `public async Task<string> DoSomethingAsync(string session_id, ...)`
+2. Method signature: `public async Task<string> DoSomethingAsync(string sessionId, ...)`
 3. Register in `Program.cs`: `builder.Services.AddSingleton<MyTool>();`
 4. Add to `ToolRegistry` constructor and register via `AIFunctionFactory.Create`
 5. Update system prompt in `AiChatService` to mention the tool
@@ -239,7 +239,7 @@ The base class `A2AServerBase.AddTextArtifact` signature is `(task, text, name)`
 `AiChatService.SystemPrompt` is a `static string` property (not `const`) because it includes `DateTime.UtcNow` for today's date. The prompt instructs the LLM to:
 - Call `web_search` for current events (LLM has knowledge cutoff)
 - NOT search RAG when images or documents are uploaded inline
-- Pass `session_id` to every tool call
+- Pass `sessionId` to every tool call
 - Only use RAG results with relevance > 0.6
 
 ## Gotchas
@@ -253,5 +253,5 @@ The base class `A2AServerBase.AddTextArtifact` signature is `(task, text, name)`
 - **`AddTextArtifact(task, text, name)`**: text is second param, name is third. Easy to swap — verify order.
 - **Resilience handler `MaxRetryAttempts`**: minimum is 1, not 0. Setting 0 throws `OptionsValidationException`.
 - **SerpAPI for web search** (not Google Custom Search which requires billing). Key in `appsettings.Secrets.json`.
-- **Markdig** renders agent chat responses and workflow Final Result as HTML. Uses default pipeline (no `UseAdvancedExtensions` — removed in Markdig 1.1.1). Pipeline is static in both Chat.razor and Agents.razor.
+- **Markdig** renders agent chat responses and workflow Final Result as HTML. Uses default pipeline (no `UseAdvancedExtensions` — removed in Markdig 1.1.1). Pipeline is static in Chat.razor; Agents.razor creates it as a local variable per call.
 - **Control flow style**: Use switch expressions for multi-case branching (3+ cases). Use plain `if` for single conditions. Do not use switch/enum when a simple boolean check suffices.
