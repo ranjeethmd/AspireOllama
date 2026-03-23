@@ -32,10 +32,10 @@ public class SessionService(MongoCollections collections) : ISessionService
         return sessions.Select(ToDto).ToList();
     }
 
-    public async Task<ChatSessionDetails?> GetByIdAsync(string sessionId, string? userId = null)
+    public async Task<ChatSessionDetails?> GetByIdAsync(string sessionId, string userId)
     {
         var session = await collections.Sessions
-            .Find(s => s.Id == sessionId && (userId == null || s.UserId == userId))
+            .Find(s => s.Id == sessionId && s.UserId == userId)
             .FirstOrDefaultAsync();
 
         if (session is null)
@@ -56,9 +56,9 @@ public class SessionService(MongoCollections collections) : ISessionService
         };
     }
 
-    public async Task<bool> DeleteAsync(string sessionId, string? userId = null)
+    public async Task<bool> DeleteAsync(string sessionId, string userId)
     {
-        var result = await collections.Sessions.DeleteOneAsync(s => s.Id == sessionId && (userId == null || s.UserId == userId));
+        var result = await collections.Sessions.DeleteOneAsync(s => s.Id == sessionId && s.UserId == userId);
         if (result.DeletedCount == 0)
             return false;
 
@@ -66,18 +66,18 @@ public class SessionService(MongoCollections collections) : ISessionService
         return true;
     }
 
-    public async Task UpdateTitleAsync(string sessionId, string title)
+    public async Task UpdateTitleAsync(string sessionId, string userId, string title)
     {
         var truncated = title.Length > 50 ? title[..47] + "..." : title;
         await collections.Sessions.UpdateOneAsync(
-            s => s.Id == sessionId,
+            s => s.Id == sessionId && s.UserId == userId,
             Builders<ChatSessionDocument>.Update.Set(s => s.Title, truncated));
     }
 
-    public async Task TouchAsync(string sessionId)
+    public async Task TouchAsync(string sessionId, string userId)
     {
         await collections.Sessions.UpdateOneAsync(
-            s => s.Id == sessionId,
+            s => s.Id == sessionId && s.UserId == userId,
             Builders<ChatSessionDocument>.Update.Set(s => s.UpdatedAt, DateTime.UtcNow));
     }
 

@@ -91,7 +91,7 @@ app.UseHttpsRedirection();
 app.Use(async (context, next) =>
 {
     context.Response.Headers["Content-Security-Policy"] =
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;";
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;";
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["X-Frame-Options"] = "DENY";
     await next();

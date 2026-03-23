@@ -200,6 +200,13 @@ public class FileOperationsTool : ITool
             throw new UnauthorizedAccessException("Access denied: Path is outside sandbox.");
         }
 
+        // Reject symlinks and junctions to prevent sandbox escape
+        if ((File.Exists(fullPath) || System.IO.Directory.Exists(fullPath)) &&
+            File.GetAttributes(fullPath).HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new UnauthorizedAccessException("Access denied: Symlinks are not allowed in sandbox.");
+        }
+
         return fullPath;
     }
 }

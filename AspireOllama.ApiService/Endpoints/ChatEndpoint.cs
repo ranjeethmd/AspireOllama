@@ -46,8 +46,8 @@ public class ChatEndpoint(
             await messageService.AddAsync(req.SessionId, "user", historyContent, req.Images, req.Files);
             await messageService.AddAsync(req.SessionId, "assistant", result.Response);
 
-            await UpdateSessionTitleIfFirstMessage(req);
-            await sessionService.TouchAsync(req.SessionId);
+            await UpdateSessionTitleIfFirstMessage(req, userId);
+            await sessionService.TouchAsync(req.SessionId, userId);
 
             logger.LogInformation("Chat complete, {ToolCount} tool calls", result.ToolCalls.Count);
 
@@ -93,7 +93,7 @@ public class ChatEndpoint(
         return content;
     }
 
-    private async Task UpdateSessionTitleIfFirstMessage(ChatMessageRequest req)
+    private async Task UpdateSessionTitleIfFirstMessage(ChatMessageRequest req, string userId)
     {
         var messageCount = await messageService.GetCountAsync(req.SessionId);
 
@@ -105,7 +105,7 @@ public class ChatEndpoint(
                    ?? req.Images?.FirstOrDefault()?.FileName
                    ?? "New Chat");
 
-            await sessionService.UpdateTitleAsync(req.SessionId, title);
+            await sessionService.UpdateTitleAsync(req.SessionId, userId, title);
         }
     }
 }
