@@ -58,7 +58,7 @@ public class DocumentProcessingService : IDocumentProcessingService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to extract text from {FileName}, Type: {Type}", file.FileName, fileType);
-            return $"[Error reading file: {file.FileName} - {ex.Message}]";
+            return $"[Error reading file: {file.FileName}]";
         }
     }
 
@@ -197,7 +197,7 @@ public class DocumentProcessingService : IDocumentProcessingService
 
         if (cell.DataType?.Value == CellValues.SharedString && sharedStrings is not null)
         {
-            if (int.TryParse(value, out var index))
+            if (int.TryParse(value, out var index) && index >= 0 && index < sharedStrings.Count())
             {
                 var item = sharedStrings.ElementAt(index);
                 return item.InnerText;

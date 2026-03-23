@@ -181,16 +181,21 @@ public class FileOperationsTool : ITool
     /// </summary>
     private string GetSafePath(string? relativePath)
     {
+        // Ensure sandbox path ends with separator to prevent sibling directory bypass
+        var safeSandbox = _sandboxPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
         if (string.IsNullOrWhiteSpace(relativePath))
         {
-            return _sandboxPath;
+            return safeSandbox.TrimEnd(Path.DirectorySeparatorChar);
         }
 
         // Normalize and combine paths
-        var fullPath = Path.GetFullPath(Path.Combine(_sandboxPath, relativePath));
+        var fullPath = Path.GetFullPath(Path.Combine(safeSandbox, relativePath));
 
         // Security check: ensure path is within sandbox
-        if (!fullPath.StartsWith(_sandboxPath, StringComparison.OrdinalIgnoreCase))
+        if (!fullPath.StartsWith(safeSandbox, StringComparison.OrdinalIgnoreCase) &&
+            !fullPath.Equals(safeSandbox.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("Access denied: Path is outside sandbox.");
         }

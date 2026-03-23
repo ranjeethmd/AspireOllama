@@ -155,7 +155,14 @@
 
                 const div = document.createElement('div');
                 div.className = 'pending-file';
-                div.innerHTML = `<span class="file-name">${file.name}</span><span class="file-size">${size}</span>`;
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'file-name';
+                nameSpan.textContent = file.name;
+                const sizeSpan = document.createElement('span');
+                sizeSpan.className = 'file-size';
+                sizeSpan.textContent = size;
+                div.appendChild(nameSpan);
+                div.appendChild(sizeSpan);
                 items.appendChild(div);
             }
         },
@@ -179,8 +186,13 @@
             }
 
             try {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+                const headers = {};
+                if (token) headers['RequestVerificationToken'] = token;
+
                 const response = await fetch('/upload-documents', {
                     method: 'POST',
+                    headers: headers,
                     body: formData
                 });
 

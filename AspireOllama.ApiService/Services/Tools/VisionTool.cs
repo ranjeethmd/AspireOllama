@@ -51,12 +51,33 @@ public class VisionTool : ITool
             images = lastImageMsg.Images;
         }
 
+        const int maxBase64Length = 67_108_864; // ~50MB decoded
+
         var contentParts = new List<AIContent>();
         foreach (var img in images)
         {
-            var data = Convert.FromBase64String(img.Base64Data);
+            if (string.IsNullOrEmpty(img.Base64Data) || img.Base64Data.Length > maxBase64Length)
+            {
+                _logger.LogWarning("Image skipped: empty or too large ({Length} chars)", img.Base64Data?.Length ?? 0);
+                continue;
+            }
+
+            byte[] data;
+            try
+            {
+                data = Convert.FromBase64String(img.Base64Data);
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogWarning(ex, "Invalid base64 data for image {FileName}", img.FileName);
+                continue;
+            }
+
             contentParts.Add(new DataContent(data, NormalizeMediaType(img.ContentType)));
         }
+
+        if (contentParts.Count == 0)
+            return "No valid images could be processed. Please upload valid image files.";
         contentParts.Add(new TextContent(instruction));
 
         var visionMessages = new List<ChatMessage> { new(ChatRole.User, contentParts) };

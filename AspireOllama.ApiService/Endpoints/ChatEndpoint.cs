@@ -3,6 +3,7 @@ using AspireOllama.ApiService.Services.Message;
 using AspireOllama.ApiService.Services.Session;
 using AspireOllama.Shared;
 using FastEndpoints;
+using System.Security.Claims;
 using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
@@ -23,6 +24,18 @@ public class ChatEndpoint(
     {
         try
         {
+            var userId = HttpContext.User.FindFirst("oid")?.Value
+                ?? HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? "anonymous";
+
+            // Verify session ownership before processing
+            var session = await sessionService.GetByIdAsync(req.SessionId, userId);
+            if (session is null)
+            {
+                await Send.NotFoundAsync(ct);
+                return;
+            }
+
             logger.LogInformation("Chat request for session {SessionId}, Images: {ImageCount}, Files: {FileCount}",
                 req.SessionId, req.Images?.Count ?? 0, req.Files?.Count ?? 0);
 
@@ -48,11 +61,11 @@ public class ChatEndpoint(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error processing chat request");
+            logger.LogError(ex, "Error processing chat request for session {SessionId}", req.SessionId);
             await Send.ResponseAsync(new ChatMessageResponse
             {
                 SessionId = req.SessionId,
-                Response = $"Error: {ex.Message}"
+                Response = "An error occurred processing your request. Please try again."
             }, 500, ct);
         }
     }

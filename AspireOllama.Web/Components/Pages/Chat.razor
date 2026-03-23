@@ -1789,15 +1789,16 @@
     // ============================================================
 
     private static readonly Markdig.MarkdownPipeline MarkdownPipeline = new Markdig.MarkdownPipelineBuilder().Build();
+    private static readonly Ganss.Xss.HtmlSanitizer Sanitizer = new();
 
     private static string RenderMarkdown(string markdown) =>
-        Markdig.Markdown.ToHtml(markdown, MarkdownPipeline);
+        Sanitizer.Sanitize(Markdig.Markdown.ToHtml(markdown, MarkdownPipeline));
 
     private async Task ScrollToBottom()
     {
         try
         {
-            await JS.InvokeVoidAsync("eval", "document.querySelector('.messages-area').scrollTop = document.querySelector('.messages-area').scrollHeight");
+            await JS.InvokeVoidAsync("scrollChatToBottom");
         }
         catch { /* component may be disposed */ }
     }

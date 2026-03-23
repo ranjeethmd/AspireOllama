@@ -15,6 +15,12 @@
 
 <body style="margin:0;background:#0a0a0f;">
     <Routes />
+    <script>
+        window.scrollChatToBottom = function() {
+            var el = document.querySelector('.messages-area');
+            if (el) el.scrollTop = el.scrollHeight;
+        };
+    </script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AspireOllama.A2A.Shared;
 
@@ -68,11 +69,18 @@ public static class A2AHostExtensions
         // ── Discovery (unauthenticated) ──
         app.MapGet("/.well-known/agent.json", () => server.GetAgentCard());
 
+        var a2aLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("A2A.Authorization");
+
         // ── Core: message/send (3.1.1) — with per-skill authorization ──
         Secure(app.MapPost("/a2a/message:send", async (HttpContext httpContext, SendMessageRequest request, CancellationToken ct) =>
         {
             if (IsSkillForbidden(server, httpContext, request.Message))
+            {
+                var userId = httpContext.User.FindFirst("oid")?.Value ?? "unknown";
+                var skill = (server as ISkillAuthorizationProvider)?.ResolveSkill(request.Message);
+                a2aLogger.LogWarning("A2A skill denied: user={UserId}, skill={Skill}, endpoint=message:send", userId, skill);
                 return Results.Forbid();
+            }
 
             return Results.Ok(await server.HandleSendMessageAsync(request, ct));
         }), auth);
@@ -81,7 +89,12 @@ public static class A2AHostExtensions
         Secure(app.MapPost("/a2a/message:stream", (HttpContext httpContext, SendMessageRequest request, CancellationToken ct) =>
         {
             if (IsSkillForbidden(server, httpContext, request.Message))
+            {
+                var userId = httpContext.User.FindFirst("oid")?.Value ?? "unknown";
+                var skill = (server as ISkillAuthorizationProvider)?.ResolveSkill(request.Message);
+                a2aLogger.LogWarning("A2A skill denied: user={UserId}, skill={Skill}, endpoint=message:stream", userId, skill);
                 return Results.Forbid();
+            }
 
             return SafeCall(() => Results.Ok(server.HandleSendMessageStreamAsync(request, ct)));
         }), auth);
@@ -139,11 +152,20 @@ public static class A2AHostExtensions
         }
     }
 
-    private static bool IsSkillForbidden(IA2AServer server, HttpContext httpContext, Message message) =>
-        server is ISkillAuthorizationProvider provider
-        && provider.ResolveSkill(message) is { } skillId
-        && provider.GetSkillRoles().TryGetValue(skillId, out var requiredRole)
-        && !httpContext.User.IsInRole(requiredRole);
+    private static bool IsSkillForbidden(IA2AServer server, HttpContext httpContext, Message message)
+    {
+        if (server is not ISkillAuthorizationProvider provider)
+            return false;
+
+        var skillId = provider.ResolveSkill(message);
+        if (skillId is null)
+            return true; // Deny by default when skill cannot be resolved
+
+        if (!provider.GetSkillRoles().TryGetValue(skillId, out var requiredRole))
+            return true; // Deny by default when skill has no role mapping
+
+        return !httpContext.User.IsInRole(requiredRole);
+    }
 
     private static IResult SafeCall(Func<IResult> action)
     {

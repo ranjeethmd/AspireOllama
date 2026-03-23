@@ -32,10 +32,10 @@ public class SessionService(MongoCollections collections) : ISessionService
         return sessions.Select(ToDto).ToList();
     }
 
-    public async Task<ChatSessionDetails?> GetByIdAsync(string sessionId)
+    public async Task<ChatSessionDetails?> GetByIdAsync(string sessionId, string? userId = null)
     {
         var session = await collections.Sessions
-            .Find(s => s.Id == sessionId)
+            .Find(s => s.Id == sessionId && (userId == null || s.UserId == userId))
             .FirstOrDefaultAsync();
 
         if (session is null)
@@ -56,9 +56,9 @@ public class SessionService(MongoCollections collections) : ISessionService
         };
     }
 
-    public async Task<bool> DeleteAsync(string sessionId)
+    public async Task<bool> DeleteAsync(string sessionId, string? userId = null)
     {
-        var result = await collections.Sessions.DeleteOneAsync(s => s.Id == sessionId);
+        var result = await collections.Sessions.DeleteOneAsync(s => s.Id == sessionId && (userId == null || s.UserId == userId));
         if (result.DeletedCount == 0)
             return false;
 
