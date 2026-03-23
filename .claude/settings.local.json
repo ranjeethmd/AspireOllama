@@ -36,7 +36,14 @@
       "Bash(ls:*)",
       "Bash(dotnet add:*)",
       "Bash(dotnet add package:*)",
-      "Bash(terraform validate:*)"
+      "Bash(terraform validate:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(docker build:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker exec:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -v http://localhost:80/)",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }

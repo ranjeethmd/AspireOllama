@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/node_modules/
+**/*.user
+**/*.suo
+.git/
+.env
+images/
+infra/
+k8s/
+AspireOllama.Tests.UI/
+AspireOllama.AppHost/
+**/appsettings.Secrets.json

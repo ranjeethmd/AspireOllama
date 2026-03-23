@@ -1,3 +1,5 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Json;
@@ -13,7 +15,7 @@ public interface IA2AAgentClient
     Task<AgentCard?> GetAgentCardAsync(string agentName, CancellationToken ct = default);
     Task<SendMessageResponse> SendMessageAsync(string agentName, SendMessageRequest request, CancellationToken ct = default);
     Task<SendMessageResponse> SendTextAsync(string agentName, string text, CancellationToken ct = default);
-    Task<A2ATask?> GetTaskAsync(string agentName, string taskId, CancellationToken ct = default);
+    Task<Protocol.Task?> GetTaskAsync(string agentName, string taskId, CancellationToken ct = default);
     Task<bool> CancelTaskAsync(string agentName, string taskId, CancellationToken ct = default);
     IEnumerable<string> GetKnownAgents();
 }
@@ -94,9 +96,9 @@ public class A2AAgentClient : IA2AAgentClient
             _logger.LogError(ex, "Error sending message to {Agent}", agentName);
             return new SendMessageResponse
             {
-                Task = new A2ATask
+                Task = new Protocol.Task
                 {
-                    Status = new A2ATaskStatus
+                    Status = new Protocol.TaskStatus
                     {
                         State = TaskState.Failed,
                         Message = $"Failed to communicate with {agentName}: {ex.Message}"
@@ -110,15 +112,15 @@ public class A2AAgentClient : IA2AAgentClient
     {
         return await SendMessageAsync(agentName, new SendMessageRequest
         {
-            Message = new A2AMessage
+            Message = new Message
             {
                 Role = MessageRole.User,
-                Parts = [A2APart.FromText(text)]
+                Parts = [Part.FromText(text)]
             }
         }, ct);
     }
 
-    public async Task<A2ATask?> GetTaskAsync(string agentName, string taskId, CancellationToken ct = default)
+    public async Task<Protocol.Task?> GetTaskAsync(string agentName, string taskId, CancellationToken ct = default)
     {
         try
         {
@@ -130,7 +132,7 @@ public class A2AAgentClient : IA2AAgentClient
                 return null;
             }
 
-            return await response.Content.ReadFromJsonAsync<A2ATask>(_jsonOptions, ct);
+            return await response.Content.ReadFromJsonAsync<Protocol.Task>(_jsonOptions, ct);
         }
         catch (Exception ex)
         {

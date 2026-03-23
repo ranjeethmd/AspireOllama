@@ -1,3 +1,5 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
 using AspireOllama.A2A.Shared;
 using AspireOllama.ServiceDefaults.Authentication;
 using OllamaSharp;
@@ -47,12 +49,12 @@ public class CoordinatorA2AServer(
         ]
     };
 
-    public override string? ResolveSkill(A2AMessage message) => "orchestrate_task";
+    public override string? ResolveSkill(Message message) => "orchestrate_task";
 
     public override IReadOnlyDictionary<string, string> GetSkillRoles()
         => AuthRoles.A2ASkillRoles.GetValueOrDefault("coordinator") ?? new Dictionary<string, string>();
 
-    public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
+    public override async Task<Protocol.Task> ProcessMessageAsync(Message message, CancellationToken ct)
     {
         var task = CreateTask(message);
         var userRequest = GetTextFromMessage(message);

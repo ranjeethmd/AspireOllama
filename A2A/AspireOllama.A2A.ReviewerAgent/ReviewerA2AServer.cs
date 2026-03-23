@@ -1,3 +1,5 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
 using AspireOllama.A2A.ReviewerAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
 using AspireOllama.ServiceDefaults.Authentication;
@@ -10,16 +12,13 @@ namespace AspireOllama.A2A.ReviewerAgent;
 public class ReviewerA2AServer : A2AServerBase
 {
     private readonly Lazy<IOllamaApiClient> _ollama;
-    private readonly KnownAgentsOptions _knownAgents;
 
     public ReviewerA2AServer(
         Lazy<IOllamaApiClient> ollamaClient,
-        IOptions<KnownAgentsOptions> knownAgents,
         IA2AAgentClient a2aClient,
         ILogger<ReviewerA2AServer> logger) : base(logger, a2aClient)
     {
         _ollama = ollamaClient;
-        _knownAgents = knownAgents.Value;
     }
 
     public override AgentCard GetAgentCard() => new()
@@ -67,7 +66,7 @@ public class ReviewerA2AServer : A2AServerBase
         ]
     };
 
-    public override string? ResolveSkill(A2AMessage message)
+    public override string? ResolveSkill(Message message)
     {
         var text = GetTextFromMessage(message).ToLowerInvariant();
         return text switch
@@ -82,7 +81,7 @@ public class ReviewerA2AServer : A2AServerBase
     public override IReadOnlyDictionary<string, string> GetSkillRoles()
         => AuthRoles.A2ASkillRoles.GetValueOrDefault("reviewer") ?? new Dictionary<string, string>();
 
-    public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
+    public override async Task<Protocol.Task> ProcessMessageAsync(Message message, CancellationToken ct)
     {
         var task = CreateTask(message);
         UpdateTaskStatus(task, TaskState.Working, "Processing review request...");
@@ -122,7 +121,7 @@ public class ReviewerA2AServer : A2AServerBase
         return task;
     }
 
-    private async Task ProcessReviewResponse(A2ATask task, string content, CancellationToken ct)
+    private async Task ProcessReviewResponse(Protocol.Task task, string content, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Reviewing response...", 30);
 
@@ -147,7 +146,7 @@ public class ReviewerA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessPlanReview(A2ATask task, string content, CancellationToken ct)
+    private async Task ProcessPlanReview(Protocol.Task task, string content, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Reviewing plan...", 30);
 
@@ -172,7 +171,7 @@ public class ReviewerA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessCodeReview(A2ATask task, string content, CancellationToken ct)
+    private async Task ProcessCodeReview(Protocol.Task task, string content, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Reviewing code...", 30);
 
@@ -197,7 +196,7 @@ public class ReviewerA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessProvideFeedback(A2ATask task, string content, CancellationToken ct)
+    private async Task ProcessProvideFeedback(Protocol.Task task, string content, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Generating feedback...", 30);
 
@@ -222,19 +221,4 @@ public class ReviewerA2AServer : A2AServerBase
         }
     }
 
-    private static T? ParseJsonResponse<T>(string content) where T : class
-    {
-        try
-        {
-            var jsonStart = content.IndexOf('{');
-            var jsonEnd = content.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
-            {
-                var json = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-        }
-        catch { }
-        return null;
-    }
 }

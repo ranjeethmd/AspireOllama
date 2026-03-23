@@ -1,3 +1,6 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
+
 namespace AspireOllama.A2A.Shared;
 
 /// <summary>
@@ -35,8 +38,8 @@ public interface IA2AServer
     /// </summary>
     /// <param name="message">The A2A message containing the user's request and any attachments.</param>
     /// <param name="ct">Cancellation token for cooperative cancellation.</param>
-    /// <returns>An <see cref="A2ATask"/> tracking the processing state, artifacts, and history.</returns>
-    Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct);
+    /// <returns>An <see cref="Protocol.Task"/> tracking the processing state, artifacts, and history.</returns>
+    Task<Protocol.Task> ProcessMessageAsync(Message message, CancellationToken ct);
 
     /// <summary>
     /// Receives a message from a client and returns a task that tracks the processing.
@@ -68,16 +71,16 @@ public interface IA2AServer
     /// <para>JSON-RPC method: <c>tasks/get</c> (Section 3.1.3)</para>
     /// </summary>
     /// <param name="taskId">The unique identifier of the task to retrieve.</param>
-    /// <returns>The <see cref="A2ATask"/> if found, or <c>null</c> if the task does not exist.</returns>
-    A2ATask? GetTask(string taskId);
+    /// <returns>The <see cref="Protocol.Task"/> if found, or <c>null</c> if the task does not exist.</returns>
+    Protocol.Task? GetTask(string taskId);
 
     /// <summary>
     /// Retrieves a filtered and paginated list of tasks.
     /// Can be filtered by context ID or status to find related tasks.
     /// <para>JSON-RPC method: <c>tasks/list</c> (Section 3.1.4)</para>
     /// </summary>
-    /// <returns>An enumerable of <see cref="A2ATask"/> objects.</returns>
-    IEnumerable<A2ATask> GetAllTasks();
+    /// <returns>An enumerable of <see cref="Protocol.Task"/> objects.</returns>
+    IEnumerable<Protocol.Task> GetAllTasks();
 
     /// <summary>
     /// Requests cancellation of an ongoing task.
@@ -97,8 +100,8 @@ public interface IA2AServer
     /// </summary>
     /// <param name="taskId">The unique identifier of the task to subscribe to.</param>
     /// <param name="ct">Cancellation token to end the subscription.</param>
-    /// <returns>An async stream of <see cref="A2ATaskStatus"/> updates.</returns>
-    IAsyncEnumerable<A2ATaskStatus> SubscribeToTaskAsync(string taskId, CancellationToken ct);
+    /// <returns>An async stream of <see cref="Protocol.TaskStatus"/> updates.</returns>
+    IAsyncEnumerable<Protocol.TaskStatus> SubscribeToTaskAsync(string taskId, CancellationToken ct);
 
     // ── Push Notifications ──
 

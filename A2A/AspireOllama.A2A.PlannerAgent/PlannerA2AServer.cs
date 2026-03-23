@@ -1,3 +1,5 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
 using AspireOllama.A2A.PlannerAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
 using AspireOllama.ServiceDefaults.Authentication;
@@ -59,7 +61,7 @@ public class PlannerA2AServer : A2AServerBase
         ]
     };
 
-    public override string? ResolveSkill(A2AMessage message)
+    public override string? ResolveSkill(Message message)
     {
         var text = GetTextFromMessage(message).ToLowerInvariant();
 
@@ -74,7 +76,7 @@ public class PlannerA2AServer : A2AServerBase
     public override IReadOnlyDictionary<string, string> GetSkillRoles()
         => AuthRoles.A2ASkillRoles.GetValueOrDefault("planner") ?? new Dictionary<string, string>();
 
-    public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
+    public override async Task<Protocol.Task> ProcessMessageAsync(Message message, CancellationToken ct)
     {
         var task = CreateTask(message);
         UpdateTaskStatus(task, TaskState.Working, "Processing request...");
@@ -112,7 +114,7 @@ public class PlannerA2AServer : A2AServerBase
         return task;
     }
 
-    private async Task ProcessCreatePlan(A2ATask task, string taskDescription, CancellationToken ct)
+    private async Task ProcessCreatePlan(Protocol.Task task, string taskDescription, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Creating plan...", 10);
 
@@ -124,7 +126,7 @@ public class PlannerA2AServer : A2AServerBase
             var researchResponse = await CallAgentAsync("research", $"Gather context for: {taskDescription}", ct);
             if (researchResponse?.Task?.Status.State == TaskState.Completed)
             {
-                researchContext = GetTextFromArtifact(researchResponse.Task.Artifacts.FirstOrDefault() ?? new A2AArtifact());
+                researchContext = GetTextFromArtifact(researchResponse.Task.Artifacts.FirstOrDefault() ?? new Artifact());
             }
         }
 
@@ -149,7 +151,7 @@ public class PlannerA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessAssessComplexity(A2ATask task, string taskDescription, CancellationToken ct)
+    private async Task ProcessAssessComplexity(Protocol.Task task, string taskDescription, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Assessing complexity...", 30);
 
@@ -171,7 +173,7 @@ public class PlannerA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessSuggestAgents(A2ATask task, string taskDescription, CancellationToken ct)
+    private async Task ProcessSuggestAgents(Protocol.Task task, string taskDescription, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Suggesting agents...", 30);
 
@@ -202,19 +204,4 @@ public class PlannerA2AServer : A2AServerBase
         }
     }
 
-    private static T? ParseJsonResponse<T>(string content) where T : class
-    {
-        try
-        {
-            var jsonStart = content.IndexOf('{');
-            var jsonEnd = content.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
-            {
-                var json = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-        }
-        catch { }
-        return null;
-    }
 }

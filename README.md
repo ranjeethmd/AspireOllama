@@ -87,7 +87,7 @@ AspireOllama/
 ├── AspireOllama.ServiceDefaults/ # Common service config, auth, OpenTelemetry
 ├── AspireOllama.Gateway/         # YARP reverse proxy + Let's Encrypt
 ├── A2A/                          # Agent-to-Agent protocol agents
-│   ├── AspireOllama.A2A.Shared/          # Shared A2A models and client
+│   ├── AspireOllama.A2A.Shared/          # Server infrastructure + protocol models (A2A.Protocol namespace)
 │   ├── AspireOllama.A2A.CoordinatorAgent/  # Multi-agent workflow orchestrator
 │   ├── AspireOllama.A2A.PlannerAgent/      # Task planning and orchestration
 │   ├── AspireOllama.A2A.ReviewerAgent/     # Quality review and validation
@@ -109,7 +109,7 @@ AspireOllama/
 | `AspireOllama.Web` | Blazor Server frontend with agentic dark-themed UI, file upload, and Redis-backed token cache |
 | `AspireOllama.Shared` | Shared DTOs, OllamaModels constants, API communication models |
 | `AspireOllama.ServiceDefaults` | Common service config, auth (OIDC/OBO/JWT), OpenTelemetry with resource attributes, health checks |
-| `A2A/AspireOllama.A2A.Shared` | Shared A2A protocol models, agent client, and server base class |
+| `A2A/AspireOllama.A2A.Shared` | Server infrastructure (`AspireOllama.A2A.Shared`) + protocol models (`AspireOllama.A2A.Protocol`) |
 | `A2A/AspireOllama.A2A.CoordinatorAgent` | Multi-agent workflow orchestrator with parallel execution and conflict resolution |
 | `A2A/AspireOllama.A2A.PlannerAgent` | AI-powered task planning and complexity assessment |
 | `A2A/AspireOllama.A2A.ReviewerAgent` | Quality assurance agent for reviewing responses and code |

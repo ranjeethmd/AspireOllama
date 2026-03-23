@@ -1,7 +1,7 @@
-namespace AspireOllama.A2A.Shared;
+namespace AspireOllama.A2A.Protocol;
 
 /// <summary>
-/// Push notification webhook configuration for A2A task updates.
+/// Push notification webhook configuration per A2A Protocol specification.
 /// </summary>
 public class PushNotificationConfig
 {

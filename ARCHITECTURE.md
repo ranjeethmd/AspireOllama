@@ -230,8 +230,8 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │                                   │    Select     │                  │
     │                                   │    Model      │                  │
     │                                   │               │                  │
-    │                                   │ Images? llava │                  │
-    │                                   │ Text? llama3.1│                  │
+    │                                   │ Images? qwen2.5vl │                  │
+    │                                   │ Text? qwen3│                  │
     │                                   └───────┬───────┘                  │
     │                                           │                          │
     └───────────────────────────────────────────┼──────────────────────────┘
@@ -243,7 +243,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │                                                                      │
     │         ┌─────────────────┐         ┌─────────────────┐             │
     │         │                 │         │                 │             │
-    │         │     llava       │   OR    │    llama3.1     │             │
+    │         │     qwen2.5vl       │   OR    │    qwen3     │             │
     │         │                 │         │                 │             │
     │         │  Vision Model   │         │  Tool-Calling   │             │
     │         │  Image Analysis │         │    Model        │             │
@@ -322,7 +322,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
                     ▼ YES                             ▼ NO
         ┌───────────────────────┐         ┌───────────────────────┐
         │                       │         │                       │
-        │    USE llava MODEL    │         │  USE llama3.1 MODEL   │
+        │    USE qwen2.5vl MODEL    │         │  USE qwen3 MODEL   │
         │                       │         │                       │
         │  ┌─────────────────┐  │         │  ┌─────────────────┐  │
         │  │ Vision Capable  │  │         │  │  Tool Capable   │  │
@@ -392,7 +392,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
                                        │
                                        ▼
     ┌──────────────────────────────────────────────────────────────────────┐
-    │                         llama3.1 MODEL                               │
+    │                         qwen3 MODEL                               │
     │                                                                      │
     │    ┌─────────────────────────────────────────────────────────────┐   │
     │    │                                                             │   │
@@ -432,7 +432,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
                                        │
                                        ▼
     ┌──────────────────────────────────────────────────────────────────────┐
-    │                         llama3.1 MODEL                               │
+    │                         qwen3 MODEL                               │
     │                                                                      │
     │    ┌─────────────────────────────────────────────────────────────┐   │
     │    │                                                             │   │
@@ -653,10 +653,20 @@ AspireOllama is a distributed AI chat application with the following key capabil
 
 ### A2A Class Hierarchy
 
+Protocol models use `AspireOllama.A2A.Protocol` namespace with spec-aligned names
+(`Task`, `Message`, `Part`, `Artifact`). `Task` intentionally clashes with
+`System.Threading.Tasks.Task` — to keep protocol naming pristine, resolved via
+`using Task = System.Threading.Tasks.Task;`. Protocol task is always `Protocol.Task`.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        A2A CLASS HIERARCHY                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+    AspireOllama.A2A.Protocol (namespace — A2A spec models):
+      Task, TaskStatus, TaskState, Message, MessageRole, Part, Artifact,
+      AgentCard, AgentSkill, SendMessageRequest, SendMessageResponse,
+      PushNotificationConfig
 
     IA2AServer (interface)                ISkillAuthorizationProvider (interface)
     │  Pure A2A protocol spec             │  ResolveSkill(message) → skillId
@@ -951,7 +961,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │   ┌─────────────────────────────────────────────────────────────┐    │
     │   │                                                             │    │
     │   │  1. Extract text from PDF                                   │    │
-    │   │  2. Analyze image with llava                                │    │
+    │   │  2. Analyze image with qwen2.5vl                                │    │
     │   │  3. Generate response                                       │    │
     │   │                                                             │    │
     │   └─────────────────────────────────────────────────────────────┘    │
@@ -1017,7 +1027,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
     ┌─────────────────────────────────────┐  ┌────────┐  ┌────────┐  ┌────────┐
     │           ChatDbContext             │  │ Vision │  │ Tools  │  │Document│
     │              (SQLite)               │  │ Client │  │ Client │  │ Process│
-    │                                     │  │(llava) │  │(llama) │  │ Service│
+    │                                     │  │(qwen2.5vl) │  │(llama) │  │ Service│
     └─────────────────────────────────────┘  └────────┘  └───┬────┘  └────────┘
                                                              │
                                              ┌───────────────┼───────────────┐
@@ -1083,7 +1093,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
 
     ┌─────────────────────────────────────────────────────────────────────┐
     │  A2A Agents:                                                        │
-    │    builder.AddOlamaSharpClient("llama3.1");                         │
+    │    builder.AddOlamaSharpClient("qwen3");                         │
     │                                                                     │
     │  API Service:                                                       │
     │    builder.AddMcpServerClient();                                    │
@@ -1128,7 +1138,7 @@ AspireOllama is a distributed AI chat application with the following key capabil
     │   │   YES          NO                                             │ │
     │   │     │           │                                             │ │
     │   │     ▼           ▼                                             │ │
-    │   │   llava     llama3.1                                          │ │
+    │   │   qwen2.5vl     qwen3                                          │ │
     │   │  (vision)   (tools)                                           │ │
     │   │                                                               │ │
     │   └───────────────────────────────────────────────────────────────┘ │

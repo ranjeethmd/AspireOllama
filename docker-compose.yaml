@@ -1,21 +1,23 @@
-# AspireOllama Docker Compose
+# AspireOllama Docker Compose — Production
 # Copy docker-compose.env.example to .env and fill in secrets before running
-# Usage: docker compose up --build
+# Usage: docker compose up --build -d
+#
+# TLS options (set in .env):
+#   USE_CLOUDFLARE=true  → Cloudflared sidecar handles TLS, Let's Encrypt disabled
+#   USE_CLOUDFLARE=false → Let's Encrypt enabled (requires LETSENCRYPT_DOMAIN)
+#
+# Service discovery & connection strings are in appsettings.Docker.json per project.
+# Only secrets and deployment config are passed via environment variables.
 
-x-newrelic-env: &newrelic-env
-  NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
-  CORECLR_ENABLE_PROFILING: "1"
-  CORECLR_PROFILER: "{36032161-FFC0-4B61-B559-F6C5D41BAE5A}"
-  CORECLR_NEWRELIC_HOME: /usr/local/newrelic-dotnet-agent
-  CORECLR_PROFILER_PATH: /usr/local/newrelic-dotnet-agent/libNewRelicProfiler.so
 
 x-otel-env: &otel-env
   OTEL_EXPORTER_OTLP_ENDPOINT: https://otlp.nr-data.net
   OTEL_EXPORTER_OTLP_HEADERS: api-key=${NEW_RELIC_LICENSE_KEY}
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-  OTEL_Service_Namespace: AspireOllama
-  OTEL_Service_Version: "1.0.0"
-  OTEL_Deployment_Environment: docker
+  OTEL_SERVICE_NAMESPACE: AspireOllama
+  OTEL_SERVICE_VERSION: "1.0.0"
+  OTEL_DEPLOYMENT_ENVIRONMENT: docker
+  OTEL_PROPAGATORS: tracecontext,baggage
 
 x-azure-ad-backend: &azure-ad-backend
   AzureAd__Instance: https://login.microsoftonline.com/
@@ -25,24 +27,8 @@ x-azure-ad-backend: &azure-ad-backend
   AzureAd__Audience: ${AZUREAD_AUDIENCE}
   Gateway__SharedSecret: ${GATEWAY_SHARED_SECRET}
 
-x-service-discovery: &service-discovery
-  ConnectionStrings__redis: redis:6379
-  ConnectionStrings__ollama: http://ollama:11434
-  ConnectionStrings__mcpserver: http://mcpserver:8080
-  ConnectionStrings__apiservice: http://apiservice:8080
-  ConnectionStrings__gateway: http://gateway:8080
-
-x-a2a-discovery: &a2a-discovery
-  A2A__KnownAgents__planner: http://planner-agent:8080
-  A2A__KnownAgents__reviewer: http://reviewer-agent:8080
-  A2A__KnownAgents__research: http://research-agent:8080
-  A2A__KnownAgents__code: http://code-agent:8080
-
-x-healthcheck: &healthcheck
-  interval: 30s
-  timeout: 10s
-  retries: 3
-  start_period: 15s
+x-dotnet-docker: &dotnet-docker
+  ASPNETCORE_ENVIRONMENT: Docker
 
 services:
   # ============================================================
@@ -50,19 +36,26 @@ services:
   # ============================================================
 
   redis:
-    image: redis:7-alpine
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      <<: *healthcheck
-    networks:
-      - internal
+    build: { context: docker, dockerfile: redis.Dockerfile }
+    volumes: [redis-data:/data]
+    restart: unless-stopped
+    networks: [internal]
+
+  mongodb:
+    build: { context: docker, dockerfile: mongodb.Dockerfile }
+    volumes: [mongodb-data:/data/db]
+    restart: unless-stopped
+    networks: [internal]
+
+  qdrant:
+    build: { context: docker, dockerfile: qdrant.Dockerfile }
+    volumes: [qdrant-data:/qdrant/storage]
+    restart: unless-stopped
+    networks: [internal]
 
   ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama-data:/root/.ollama
+    build: { context: docker, dockerfile: ollama.Dockerfile }
+    volumes: [ollama-data:/root/.ollama]
     deploy:
       resources:
         reservations:
@@ -70,75 +63,94 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
-      <<: *healthcheck
-    networks:
-      - internal
+    restart: unless-stopped
+    networks: [internal]
 
-  # Pull models after Ollama is ready
   ollama-init:
     image: curlimages/curl:latest
     depends_on:
-      ollama:
-        condition: service_healthy
+      ollama: { condition: service_healthy }
     entrypoint: ["sh", "-c"]
     command:
       - |
-        curl -X POST http://ollama:11434/api/pull -d '{"name":"llava"}' &&
-        curl -X POST http://ollama:11434/api/pull -d '{"name":"llama3.1"}'
-    networks:
-      - internal
+        echo "Pulling Qwen3 32B..." &&
+        curl -X POST http://ollama:11434/api/pull -d '{"name":"qwen3:32b"}' &&
+        echo "Pulling Qwen2.5-VL 32B..." &&
+        curl -X POST http://ollama:11434/api/pull -d '{"name":"qwen2.5vl:32b"}' &&
+        echo "Pulling nomic-embed-text..." &&
+        curl -X POST http://ollama:11434/api/pull -d '{"name":"nomic-embed-text"}' &&
+        echo "All models pulled."
+    networks: [internal]
 
   # ============================================================
-  # YARP Gateway (externally exposed)
+  # OTEL Collector (infrastructure telemetry)
+  # Collects logs + container stats from MongoDB, Qdrant, Ollama, Redis
+  # Forwards to New Relic under service.namespace=AspireOllama
+  # ============================================================
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    user: "0:0"
+    volumes:
+      - ./docker/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    environment:
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+    depends_on:
+      mongodb: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      ollama: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [internal]
+
+  # ============================================================
+  # Cloudflare Tunnel
+  # ============================================================
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      gateway: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [external]
+
+  # ============================================================
+  # YARP Gateway
   # ============================================================
 
   gateway:
-    build:
-      context: .
-      args:
-        PROJECT: AspireOllama.Gateway
+    build: { context: ., args: { PROJECT_DIR: AspireOllama.Gateway, PROJECT_NAME: AspireOllama.Gateway } }
     ports:
-      - "80:8080"
-      - "443:8443"
+      - "${GATEWAY_HTTP_PORT:-80}:8080"
+      - "${GATEWAY_HTTPS_PORT:-443}:8443"
     environment:
-      <<: [*newrelic-env, *otel-env]
+      <<: [*otel-env, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.Gateway
-      NEW_RELIC_APP_NAME: AspireOllama.Gateway
-      ASPNETCORE_ENVIRONMENT: Production
-      # Let's Encrypt - set domain and email to enable
+      USE_CLOUDFLARE: ${USE_CLOUDFLARE:-false}
       LettuceEncrypt__AcceptTermsOfService: "true"
       LettuceEncrypt__DomainNames__0: ${LETSENCRYPT_DOMAIN:-}
       LettuceEncrypt__EmailAddress: ${LETSENCRYPT_EMAIL:-}
-    volumes:
-      - letsencrypt-certs:/root/.aspnet/DataProtection-Keys
+    volumes: [letsencrypt-certs:/root/.aspnet/DataProtection-Keys]
     depends_on:
-      webfrontend:
-        condition: service_healthy
-      apiservice:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
-      - external
+      webfrontend: { condition: service_healthy }
+      apiservice: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [internal, external]
 
   # ============================================================
-  # Web Frontend (externally exposed via gateway)
+  # Web Frontend
   # ============================================================
 
   webfrontend:
-    build:
-      context: .
-      args:
-        PROJECT: AspireOllama.Web
+    build: { context: ., args: { PROJECT_DIR: AspireOllama.Web, PROJECT_NAME: AspireOllama.Web } }
     environment:
-      <<: [*newrelic-env, *otel-env, *service-discovery]
+      <<: [*otel-env, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.Web
-      NEW_RELIC_APP_NAME: AspireOllama.Web
-      ASPNETCORE_ENVIRONMENT: Production
       AzureAd__Instance: https://login.microsoftonline.com/
       AzureAd__TenantId: ${AZUREAD_TENANT_ID}
       AzureAd__ClientId: ${AZUREAD_WEB_CLIENT_ID}
@@ -147,155 +159,104 @@ services:
       AzureAd__CallbackPath: /signin-oidc
       AzureAd__SignedOutCallbackPath: /signout-callback-oidc
       Gateway__SharedSecret: ${GATEWAY_SHARED_SECRET}
-      DownstreamApis__ApiService__BaseUrl: http://gateway
-      DownstreamApis__McpServer__BaseUrl: http://gateway
-      DownstreamApis__A2AAgents__BaseUrl: http://gateway
       DownstreamApis__ApiService__Scopes__0: ${AZUREAD_AUDIENCE}/.default
       DownstreamApis__McpServer__Scopes__0: ${AZUREAD_AUDIENCE}/.default
       DownstreamApis__A2AAgents__Scopes__0: ${AZUREAD_AUDIENCE}/.default
     depends_on:
-      redis:
-        condition: service_healthy
-      apiservice:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
+      redis: { condition: service_healthy }
+      apiservice: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [internal]
 
   # ============================================================
-  # API Service (internal only)
+  # API Service
   # ============================================================
 
   apiservice:
-    build:
-      context: .
-      args:
-        PROJECT: AspireOllama.ApiService
+    build: { context: ., args: { PROJECT_DIR: AspireOllama.ApiService, PROJECT_NAME: AspireOllama.ApiService } }
     environment:
-      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      <<: [*otel-env, *azure-ad-backend, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.ApiService
-      NEW_RELIC_APP_NAME: AspireOllama.ApiService
-      ASPNETCORE_ENVIRONMENT: Production
+      Tools__EnableWebSearch: "true"
+      Tools__WebSearch__SerpApiKey: ${SERPAPI_KEY}
     depends_on:
-      ollama-init:
-        condition: service_completed_successfully
-      mcpserver:
-        condition: service_healthy
-      planner-agent:
-        condition: service_healthy
-      reviewer-agent:
-        condition: service_healthy
-      research-agent:
-        condition: service_healthy
-      code-agent:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
+      mongodb: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      ollama-init: { condition: service_completed_successfully }
+      mcpserver: { condition: service_healthy }
+      coordinator-agent: { condition: service_healthy }
+      planner-agent: { condition: service_healthy }
+      reviewer-agent: { condition: service_healthy }
+      research-agent: { condition: service_healthy }
+      code-agent: { condition: service_healthy }
+    restart: unless-stopped
+    networks: [internal]
 
   # ============================================================
-  # MCP Server (internal only)
+  # MCP Server
   # ============================================================
 
   mcpserver:
-    build:
-      context: .
-      args:
-        PROJECT: AspireOllama.McpServer
+    build: { context: ., args: { PROJECT_DIR: AspireOllama.McpServer, PROJECT_NAME: AspireOllama.McpServer } }
     environment:
-      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery]
+      <<: [*otel-env, *azure-ad-backend, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.McpServer
-      NEW_RELIC_APP_NAME: AspireOllama.McpServer
-      ASPNETCORE_ENVIRONMENT: Production
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
+    restart: unless-stopped
+    networks: [internal]
 
   # ============================================================
-  # A2A Agents (internal only)
+  # A2A Agents
   # ============================================================
+
+  coordinator-agent:
+    build: { context: ., args: { PROJECT_DIR: A2A/AspireOllama.A2A.CoordinatorAgent, PROJECT_NAME: AspireOllama.A2A.CoordinatorAgent } }
+    environment:
+      <<: [*otel-env, *azure-ad-backend, *dotnet-docker]
+      OTEL_SERVICE_NAME: AspireOllama.A2A.CoordinatorAgent
+    depends_on:
+      ollama-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [internal]
 
   planner-agent:
-    build:
-      context: .
-      args:
-        PROJECT: A2A/AspireOllama.A2A.PlannerAgent
+    build: { context: ., args: { PROJECT_DIR: A2A/AspireOllama.A2A.PlannerAgent, PROJECT_NAME: AspireOllama.A2A.PlannerAgent } }
     environment:
-      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      <<: [*otel-env, *azure-ad-backend, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.A2A.PlannerAgent
-      NEW_RELIC_APP_NAME: AspireOllama.A2A.PlannerAgent
-      ASPNETCORE_ENVIRONMENT: Production
     depends_on:
-      ollama-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
+      ollama-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [internal]
 
   reviewer-agent:
-    build:
-      context: .
-      args:
-        PROJECT: A2A/AspireOllama.A2A.ReviewerAgent
+    build: { context: ., args: { PROJECT_DIR: A2A/AspireOllama.A2A.ReviewerAgent, PROJECT_NAME: AspireOllama.A2A.ReviewerAgent } }
     environment:
-      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      <<: [*otel-env, *azure-ad-backend, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.A2A.ReviewerAgent
-      NEW_RELIC_APP_NAME: AspireOllama.A2A.ReviewerAgent
-      ASPNETCORE_ENVIRONMENT: Production
     depends_on:
-      ollama-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
+      ollama-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [internal]
 
   research-agent:
-    build:
-      context: .
-      args:
-        PROJECT: A2A/AspireOllama.A2A.ResearchAgent
+    build: { context: ., args: { PROJECT_DIR: A2A/AspireOllama.A2A.ResearchAgent, PROJECT_NAME: AspireOllama.A2A.ResearchAgent } }
     environment:
-      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      <<: [*otel-env, *azure-ad-backend, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.A2A.ResearchAgent
-      NEW_RELIC_APP_NAME: AspireOllama.A2A.ResearchAgent
-      ASPNETCORE_ENVIRONMENT: Production
     depends_on:
-      ollama-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
+      ollama-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [internal]
 
   code-agent:
-    build:
-      context: .
-      args:
-        PROJECT: A2A/AspireOllama.A2A.CodeAgent
+    build: { context: ., args: { PROJECT_DIR: A2A/AspireOllama.A2A.CodeAgent, PROJECT_NAME: AspireOllama.A2A.CodeAgent } }
     environment:
-      <<: [*newrelic-env, *otel-env, *azure-ad-backend, *service-discovery, *a2a-discovery]
+      <<: [*otel-env, *azure-ad-backend, *dotnet-docker]
       OTEL_SERVICE_NAME: AspireOllama.A2A.CodeAgent
-      NEW_RELIC_APP_NAME: AspireOllama.A2A.CodeAgent
-      ASPNETCORE_ENVIRONMENT: Production
     depends_on:
-      ollama-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      <<: *healthcheck
-    networks:
-      - internal
+      ollama-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks: [internal]
 
 networks:
   internal:
@@ -305,5 +266,7 @@ networks:
 
 volumes:
   redis-data:
+  mongodb-data:
+  qdrant-data:
   ollama-data:
   letsencrypt-certs:

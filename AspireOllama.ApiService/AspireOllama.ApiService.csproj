@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\AspireOllama.ServiceDefaults\AspireOllama.ServiceDefaults.csproj" />
     <ProjectReference Include="..\AspireOllama.Shared\AspireOllama.Shared.csproj" />
+    <ProjectReference Include="..\A2A\AspireOllama.A2A.Shared\AspireOllama.A2A.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

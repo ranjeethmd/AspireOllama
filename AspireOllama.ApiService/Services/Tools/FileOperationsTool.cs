@@ -41,6 +41,7 @@ public class FileOperationsTool : ITool
     /// </summary>
     [Description("Lists files and directories in the sandbox directory. Use this to see what files are available.")]
     public string ListFiles(
+        [Description("The chat session ID")] string session_id,
         [Description("Optional subdirectory path within the sandbox")]
         string? subPath = null)
     {
@@ -86,6 +87,7 @@ public class FileOperationsTool : ITool
     /// </summary>
     [Description("Reads and returns the contents of a text file from the sandbox directory.")]
     public string ReadFile(
+        [Description("The chat session ID")] string session_id,
         [Description("The filename or relative path to read")]
         string fileName)
     {
@@ -133,6 +135,7 @@ public class FileOperationsTool : ITool
     /// </summary>
     [Description("Writes content to a text file in the sandbox directory. Creates the file if it doesn't exist.")]
     public string WriteFile(
+        [Description("The chat session ID")] string session_id,
         [Description("The filename or relative path to write to")]
         string fileName,
         [Description("The content to write to the file")]

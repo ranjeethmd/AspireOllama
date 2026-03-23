@@ -1,3 +1,5 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
 using AspireOllama.A2A.CodeAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
 using AspireOllama.ServiceDefaults.Authentication;
@@ -11,20 +13,17 @@ namespace AspireOllama.A2A.CodeAgent;
 
 public class CodeA2AServer : A2AServerBase
 {
-    // private readonly IServiceProvider _serviceProvider;
     private readonly KnownAgentsOptions _knownAgents;
-    private IOllamaApiClient? _ollamaClient;
     private static ScriptOptions? _scriptOptions;
 
     private static ScriptOptions DefaultScriptOptions => _scriptOptions ??= ScriptOptions.Default
         .WithReferences(typeof(object).Assembly, typeof(Enumerable).Assembly)
         .WithImports("System", "System.Linq", "System.Collections.Generic", "System.Text");
 
-    private Lazy<IOllamaApiClient> _ollama;
+    private readonly Lazy<IOllamaApiClient> _ollama;
 
     public CodeA2AServer(
         Lazy<IOllamaApiClient> ollamaClient,
-        IServiceProvider serviceProvider,
         IOptions<KnownAgentsOptions> knownAgents,
         IA2AAgentClient a2aClient,
         ILogger<CodeA2AServer> logger) : base(logger, a2aClient)
@@ -86,7 +85,7 @@ public class CodeA2AServer : A2AServerBase
         ]
     };
 
-    public override string? ResolveSkill(A2AMessage message)
+    public override string? ResolveSkill(Message message)
     {
         var text = GetTextFromMessage(message).ToLowerInvariant();
         return text switch
@@ -102,7 +101,7 @@ public class CodeA2AServer : A2AServerBase
     public override IReadOnlyDictionary<string, string> GetSkillRoles()
         => AuthRoles.A2ASkillRoles.GetValueOrDefault("code") ?? new Dictionary<string, string>();
 
-    public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
+    public override async Task<Protocol.Task> ProcessMessageAsync(Message message, CancellationToken ct)
     {
         var task = CreateTask(message);
         UpdateTaskStatus(task, TaskState.Working, "Processing code request...");
@@ -162,7 +161,7 @@ public class CodeA2AServer : A2AServerBase
         return task;
     }
 
-    private async Task ProcessExecuteCode(A2ATask task, string input, CancellationToken ct)
+    private async Task ProcessExecuteCode(Protocol.Task task, string input, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Executing code...", 30);
 
@@ -231,7 +230,7 @@ public class CodeA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessGenerateCode(A2ATask task, string description, CancellationToken ct)
+    private async Task ProcessGenerateCode(Protocol.Task task, string description, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Generating code...", 30);
 
@@ -253,7 +252,7 @@ public class CodeA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessAnalyzeCode(A2ATask task, string code, CancellationToken ct)
+    private async Task ProcessAnalyzeCode(Protocol.Task task, string code, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Analyzing code...", 30);
 
@@ -276,7 +275,7 @@ public class CodeA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessGenerateTests(A2ATask task, string code, CancellationToken ct)
+    private async Task ProcessGenerateTests(Protocol.Task task, string code, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Generating tests...", 30);
 
@@ -299,7 +298,7 @@ public class CodeA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessRefactorCode(A2ATask task, string input, CancellationToken ct)
+    private async Task ProcessRefactorCode(Protocol.Task task, string input, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Refactoring code...", 30);
 
@@ -348,19 +347,4 @@ public class CodeA2AServer : A2AServerBase
         return input;
     }
 
-    private static T? ParseJsonResponse<T>(string content) where T : class
-    {
-        try
-        {
-            var jsonStart = content.IndexOf('{');
-            var jsonEnd = content.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
-            {
-                var json = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-        }
-        catch { }
-        return null;
-    }
 }

@@ -45,7 +45,7 @@ public static class Extensions
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
                                        ForwardedHeaders.XForwardedProto |
                                        ForwardedHeaders.XForwardedHost;
-            // Trust all proxies in the Aspire network
+            // Trust all proxies in the Aspire/Docker network
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
         });
@@ -70,12 +70,6 @@ public static class Extensions
             http.AddServiceDiscovery();
         });
 
-        // Uncomment the following to restrict the allowed schemes for service discovery.
-        // builder.Services.Configure<ServiceDiscoveryOptions>(options =>
-        // {
-        //     options.AllowedSchemes = ["https"];
-        // });
-
         return builder;
     }
 
@@ -87,15 +81,22 @@ public static class Extensions
             logging.IncludeScopes = true;
         });
 
+        var otelServiceName = builder.Configuration["OTEL_SERVICE_NAME"] ?? builder.Environment.ApplicationName;
+        var otelNamespace = builder.Configuration["OTEL_SERVICE_NAMESPACE"] ?? "AspireOllama";
+        var otelVersion = builder.Configuration["OTEL_SERVICE_VERSION"] ?? "1.0.0";
+        var otelEnvironment = builder.Configuration["OTEL_DEPLOYMENT_ENVIRONMENT"] ?? builder.Environment.EnvironmentName;
+
         builder.Services.AddOpenTelemetry()
             .ConfigureResource(resource =>
             {
                 resource.AddService(
-                    serviceName: builder.Environment.ApplicationName,
-                    serviceNamespace: builder.Configuration["Otel:ServiceNamespace"] ?? "AspireOllama",
-                    serviceVersion: builder.Configuration["Otel:ServiceVersion"] ?? "1.0.0");
+                    serviceName: otelServiceName,
+                    serviceNamespace: otelNamespace,
+                    serviceVersion: otelVersion,
+                    serviceInstanceId: Environment.MachineName);
                 resource.AddAttributes([
-                    new("deployment.environment", builder.Configuration["Otel:DeploymentEnvironment"] ?? builder.Environment.EnvironmentName),
+                    new("deployment.environment", otelEnvironment),
+                    new("service.group", otelNamespace),
                 ]);
             })
             .WithMetrics(metrics =>
@@ -113,8 +114,6 @@ public static class Extensions
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
                             && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
                     )
-                    // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
-                    //.AddGrpcClientInstrumentation()
                     .AddHttpClientInstrumentation();
             });
 
@@ -132,12 +131,6 @@ public static class Extensions
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
 
-        // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
-        //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
-        //{
-        //    builder.Services.AddOpenTelemetry()
-        //       .UseAzureMonitor();
-        //}
 
         return builder;
     }
@@ -156,19 +149,12 @@ public static class Extensions
         // Enable forwarded headers for YARP gateway support
         app.UseForwardedHeaders();
 
-        // Adding health checks endpoints to applications in non-development environments has security implications.
-        // See https://aka.ms/dotnet/aspire/healthchecks for details before enabling these endpoints in non-development environments.
-        if (app.Environment.IsDevelopment())
+        // Health check endpoints — required for Docker/K8s healthchecks in all environments
+        app.MapHealthChecks(HealthEndpointPath);
+        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {
-            // All health checks must pass for app to be considered ready to accept traffic after starting
-            app.MapHealthChecks(HealthEndpointPath);
-
-            // Only health checks tagged with the "live" tag must pass for app to be considered alive
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
+            Predicate = r => r.Tags.Contains("live")
+        });
 
         return app;
     }

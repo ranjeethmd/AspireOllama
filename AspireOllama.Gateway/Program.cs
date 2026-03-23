@@ -2,12 +2,17 @@ using System.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Ensure W3C trace context propagation (traceparent/tracestate headers)
+DistributedContextPropagator.Current = DistributedContextPropagator.CreateDefaultPropagator();
+
 // Aspire service defaults: service discovery, OpenTelemetry (traces, metrics, logs), health checks
 builder.AddServiceDefaults();
 
-// Add YARP-specific activity source for distributed tracing
+// Add YARP and gateway activity sources for distributed tracing
 builder.Services.AddOpenTelemetry()
-    .WithTracing(tracing => tracing.AddSource("Yarp.ReverseProxy"));
+    .WithTracing(tracing => tracing
+        .AddSource("Yarp.ReverseProxy")
+        .AddSource("AspireOllama.Gateway"));
 
 // Allow large file uploads through the gateway (100MB)
 builder.WebHost.ConfigureKestrel(options =>
@@ -20,9 +25,11 @@ builder.Services.AddReverseProxy()
     .AddServiceDiscoveryDestinationResolver();
 
 // Let's Encrypt automatic TLS via ACME protocol
-// Only enabled when domain is configured (production) — skipped in Aspire dev
+// Disabled when USE_CLOUDFLARE=true (Cloudflare Tunnel handles TLS at the edge)
+// Also skipped when no domain is configured (Aspire dev)
+var useCloudflare = builder.Configuration.GetValue<bool>("USE_CLOUDFLARE");
 var letsEncryptDomain = builder.Configuration["LettuceEncrypt:DomainNames:0"];
-if (!string.IsNullOrWhiteSpace(letsEncryptDomain))
+if (!useCloudflare && !string.IsNullOrWhiteSpace(letsEncryptDomain))
 {
     builder.Services.AddLettuceEncrypt();
 }
@@ -31,11 +38,14 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 
-// Redirect HTTP to HTTPS in production
-if (!app.Environment.IsDevelopment())
+// Redirect HTTP to HTTPS — disabled when Cloudflare handles TLS or in development
+var useCloudflareForTls = app.Configuration.GetValue<bool>("USE_CLOUDFLARE");
+if (!app.Environment.IsDevelopment() && !useCloudflareForTls)
 {
     app.UseHttpsRedirection();
 }
+
+var gatewaySource = new ActivitySource("AspireOllama.Gateway");
 
 app.MapReverseProxy(proxyPipeline =>
 {
@@ -44,26 +54,34 @@ app.MapReverseProxy(proxyPipeline =>
         var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
             .CreateLogger("AspireOllama.Gateway.Proxy");
 
+        // Internal span so the funnel sees one Server per service, not two
+        using var activity = gatewaySource.StartActivity("gateway.proxy", ActivityKind.Internal);
+
+        var traceId = activity?.TraceId.ToString() ?? Guid.NewGuid().ToString("N");
+        context.Response.Headers["X-Request-Id"] = traceId;
+
         var sw = Stopwatch.StartNew();
         var route = context.GetReverseProxyFeature()?.Route?.Config?.RouteId ?? "unknown";
         var cluster = context.GetReverseProxyFeature()?.Route?.Config?.ClusterId ?? "unknown";
 
-        logger.LogInformation("Gateway [{Route}] -> {Cluster}: {Method} {Path}",
-            route, cluster, context.Request.Method, context.Request.Path);
+        activity?.SetTag("gateway.route", route);
+        activity?.SetTag("gateway.cluster", cluster);
+        activity?.SetTag("http.method", context.Request.Method);
+        activity?.SetTag("http.target", context.Request.Path.ToString());
+
+        logger.LogInformation("Gateway [{Route}] -> {Cluster}: {Method} {Path} TraceId={TraceId}",
+            route, cluster, context.Request.Method, context.Request.Path, traceId);
 
         await next();
 
         sw.Stop();
         var status = context.Response.StatusCode;
 
-        logger.LogInformation("Gateway [{Route}] <- {Cluster}: {Status} in {ElapsedMs}ms",
-            route, cluster, status, sw.ElapsedMilliseconds);
+        activity?.SetTag("http.status_code", status);
+        activity?.SetTag("gateway.duration_ms", sw.ElapsedMilliseconds);
 
-        // Tag the current activity with proxy metadata for traces
-        Activity.Current?.SetTag("gateway.route", route);
-        Activity.Current?.SetTag("gateway.cluster", cluster);
-        Activity.Current?.SetTag("gateway.upstream.status_code", status);
-        Activity.Current?.SetTag("gateway.upstream.duration_ms", sw.ElapsedMilliseconds);
+        logger.LogInformation("Gateway [{Route}] <- {Cluster}: {Status} in {ElapsedMs}ms TraceId={TraceId}",
+            route, cluster, status, sw.ElapsedMilliseconds, traceId);
     });
 });
 

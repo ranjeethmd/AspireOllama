@@ -1,3 +1,5 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
@@ -9,7 +11,7 @@ namespace AspireOllama.A2A.Shared;
 /// </summary>
 public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
 {
-    protected readonly ConcurrentDictionary<string, A2ATask> _tasks = new();
+    protected readonly ConcurrentDictionary<string, Protocol.Task> _tasks = new();
     protected readonly ILogger _logger;
     protected readonly IA2AAgentClient? _a2aClient;
 
@@ -27,13 +29,13 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Process an incoming message and return a task.
     /// </summary>
-    public abstract Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct);
+    public abstract Task<Protocol.Task> ProcessMessageAsync(Message message, CancellationToken ct);
 
     /// <summary>
     /// Resolves which skill handles a message. Override in each agent to inspect message text.
     /// Returns null if no specific skill — access role check still applies.
     /// </summary>
-    public virtual string? ResolveSkill(A2AMessage message) => null;
+    public virtual string? ResolveSkill(Message message) => null;
 
     /// <summary>
     /// Returns skill-to-role mapping. Override to provide per-skill authorization.
@@ -60,7 +62,7 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Get a task by ID.
     /// </summary>
-    public A2ATask? GetTask(string taskId)
+    public Protocol.Task? GetTask(string taskId)
     {
         return _tasks.GetValueOrDefault(taskId);
     }
@@ -68,7 +70,7 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Get all tasks.
     /// </summary>
-    public IEnumerable<A2ATask> GetAllTasks()
+    public IEnumerable<Protocol.Task> GetAllTasks()
     {
         return _tasks.Values;
     }
@@ -99,7 +101,7 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
         => throw new NotSupportedException("Streaming is not supported by this agent.");
 
     /// <summary>tasks/subscribe (3.1.6) — override to support task subscriptions</summary>
-    public virtual IAsyncEnumerable<A2ATaskStatus> SubscribeToTaskAsync(string taskId, CancellationToken ct)
+    public virtual IAsyncEnumerable<Protocol.TaskStatus> SubscribeToTaskAsync(string taskId, CancellationToken ct)
         => throw new NotSupportedException("Task subscription is not supported by this agent.");
 
     /// <summary>tasks/pushNotification/create (3.1.7)</summary>
@@ -127,12 +129,12 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Create a new task for a message.
     /// </summary>
-    protected A2ATask CreateTask(A2AMessage message)
+    protected Protocol.Task CreateTask(Message message)
     {
-        var task = new A2ATask
+        var task = new Protocol.Task
         {
             ContextId = message.ContextId ?? Guid.NewGuid().ToString(),
-            Status = new A2ATaskStatus { State = TaskState.Submitted },
+            Status = new Protocol.TaskStatus { State = TaskState.Submitted },
             History = [message]
         };
 
@@ -145,7 +147,7 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Update task status.
     /// </summary>
-    protected void UpdateTaskStatus(A2ATask task, TaskState state, string? message = null, int? progress = null)
+    protected void UpdateTaskStatus(Protocol.Task task, TaskState state, string? message = null, int? progress = null)
     {
         task.Status.State = state;
         task.Status.Message = message;
@@ -161,38 +163,38 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Add an artifact to a task.
     /// </summary>
-    protected void AddArtifact(A2ATask task, object data, string? name = null, string mediaType = "application/json")
+    protected void AddArtifact(Protocol.Task task, object data, string? name = null, string mediaType = "application/json")
     {
-        task.Artifacts.Add(new A2AArtifact
+        task.Artifacts.Add(new Artifact
         {
             Name = name,
-            Parts = [A2APart.FromData(data, mediaType)]
+            Parts = [Part.FromData(data, mediaType)]
         });
     }
 
     /// <summary>
     /// Add a text artifact to a task.
     /// </summary>
-    protected void AddTextArtifact(A2ATask task, string text, string? name = null)
+    protected void AddTextArtifact(Protocol.Task task, string text, string? name = null)
     {
-        task.Artifacts.Add(new A2AArtifact
+        task.Artifacts.Add(new Artifact
         {
             Name = name,
-            Parts = [A2APart.FromText(text)]
+            Parts = [Part.FromText(text)]
         });
     }
 
     /// <summary>
     /// Add a response message to task history.
     /// </summary>
-    protected void AddResponseToHistory(A2ATask task, string text)
+    protected void AddResponseToHistory(Protocol.Task task, string text)
     {
-        task.History.Add(new A2AMessage
+        task.History.Add(new Message
         {
             Role = MessageRole.Agent,
             TaskId = task.Id,
             ContextId = task.ContextId,
-            Parts = [A2APart.FromText(text)]
+            Parts = [Part.FromText(text)]
         });
     }
 
@@ -214,7 +216,7 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Get text content from a message.
     /// </summary>
-    protected static string GetTextFromMessage(A2AMessage message)
+    protected static string GetTextFromMessage(Message message)
     {
         return message.Parts
             .Where(p => p.Text is not null)
@@ -225,7 +227,7 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Get text content from an artifact.
     /// </summary>
-    protected static string? GetTextFromArtifact(A2AArtifact artifact)
+    protected static string? GetTextFromArtifact(Artifact artifact)
     {
         return artifact.Parts
             .Where(p => p.Text is not null)
@@ -236,12 +238,36 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
     /// <summary>
     /// Get data from task artifacts.
     /// </summary>
-    protected static object? GetDataFromTask(A2ATask? task)
+    protected static object? GetDataFromTask(Protocol.Task? task)
     {
         return task?.Artifacts
             .SelectMany(a => a.Parts)
             .Where(p => p.Data is not null)
             .Select(p => p.Data)
             .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Parse a JSON response from LLM output, extracting the first JSON object found.
+    /// </summary>
+    private static readonly System.Text.Json.JsonSerializerOptions JsonParseOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    protected static T? ParseJsonResponse<T>(string content) where T : class
+    {
+        try
+        {
+            var jsonStart = content.IndexOf('{');
+            var jsonEnd = content.LastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            {
+                var json = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
+                return System.Text.Json.JsonSerializer.Deserialize<T>(json, JsonParseOptions);
+            }
+        }
+        catch { }
+        return null;
     }
 }

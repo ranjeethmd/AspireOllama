@@ -236,9 +236,9 @@ if (!string.IsNullOrWhiteSpace(newRelicLicenseKey))
     {
         resource
             .WithEnvironment("OTEL_SERVICE_NAME", name)
-            .WithEnvironment("OTEL_Service_Namespace", otelServiceNamespace)
-            .WithEnvironment("OTEL_Service_Version", otelServiceVersion)
-            .WithEnvironment("OTEL_Deployment_Environment", otelDeploymentEnv)
+            .WithEnvironment("OTEL_SERVICE_NAMESPACE", otelServiceNamespace)
+            .WithEnvironment("OTEL_SERVICE_VERSION", otelServiceVersion)
+            .WithEnvironment("OTEL_DEPLOYMENT_ENVIRONMENT", otelDeploymentEnv)
             .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", newRelicOtlpEndpoint)
             .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", $"api-key={newRelicLicenseKey}")
             .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");

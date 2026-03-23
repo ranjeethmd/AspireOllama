@@ -39,22 +39,42 @@ This folder contains specialized AI agents that communicate via the [Google Agen
                             └───────────────┘
 ```
 
+## Namespace Design
+
+Protocol models live in `AspireOllama.A2A.Protocol` to keep naming aligned with the A2A specification. The class `Task` was deliberately named to match the spec despite clashing with `System.Threading.Tasks.Task` — to keep the protocol description pristine, the decision was made to accept the clash and resolve it with a using alias:
+
+```csharp
+using AspireOllama.A2A.Protocol;                // Message, Part, Artifact, AgentCard, TaskState, etc.
+using Task = System.Threading.Tasks.Task;       // bare Task = async, Protocol.Task = A2A
+```
+
+- `Task` → `System.Threading.Tasks.Task` (async return type)
+- `Protocol.Task` → `AspireOllama.A2A.Protocol.Task` (A2A protocol task)
+
+Server infrastructure stays in `AspireOllama.A2A.Shared`.
+
 ## Class Hierarchy
 
 ```
-IA2AServer (interface — pure A2A protocol spec, 11 operations)
-ISkillAuthorizationProvider (interface — per-skill role checks)
-  └── A2AServerBase (abstract — implements both, virtual defaults)
-       ├── CoordinatorA2AServer   (overrides ResolveSkill + GetSkillRoles)
-       ├── PlannerA2AServer       (overrides ResolveSkill + GetSkillRoles)
-       ├── ReviewerA2AServer      (overrides ResolveSkill + GetSkillRoles)
-       ├── ResearchA2AServer      (overrides ResolveSkill + GetSkillRoles)
-       └── CodeA2AServer          (overrides ResolveSkill + GetSkillRoles)
+AspireOllama.A2A.Protocol (namespace — A2A spec models):
+  Task, TaskStatus, TaskState, Message, MessageRole, Part, Artifact,
+  AgentCard, AgentSkill, SendMessageRequest, SendMessageResponse,
+  PushNotificationConfig
 
-Extensions (A2A.Shared):
-  AddA2AServices()       — known agents, HTTP clients, rate limiting
-  AddA2AServer<T>()      — registers server singleton
-  MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting, skill auth, 501 for unsupported
+AspireOllama.A2A.Shared (namespace — server infrastructure):
+  IA2AServer (interface — pure A2A protocol spec, 11 operations)
+  ISkillAuthorizationProvider (interface — per-skill role checks)
+    └── A2AServerBase (abstract — implements both, virtual defaults)
+         ├── CoordinatorA2AServer   (overrides ResolveSkill + GetSkillRoles)
+         ├── PlannerA2AServer       (overrides ResolveSkill + GetSkillRoles)
+         ├── ReviewerA2AServer      (overrides ResolveSkill + GetSkillRoles)
+         ├── ResearchA2AServer      (overrides ResolveSkill + GetSkillRoles)
+         └── CodeA2AServer          (overrides ResolveSkill + GetSkillRoles)
+
+  Extensions:
+    AddA2AServices()       — known agents, HTTP clients, rate limiting
+    AddA2AServer<T>()      — registers server singleton
+    MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting, skill auth, 501 for unsupported
 ```
 
 ## Project Structure
@@ -68,10 +88,10 @@ A2A/
 │   ├── A2AHostExtensions.cs             # AddA2AServices, AddA2AServer, MapA2AEndpoints
 │   ├── A2ARateLimiting.cs               # Per-user rate limiting (20 req/min)
 │   ├── A2AAgentClient.cs               # HTTP client for inter-agent calls
-│   ├── AgentCard.cs                     # Agent Card model
-│   ├── A2ATask.cs                       # Task lifecycle model
-│   ├── A2AMessage.cs                    # Message format
-│   └── PushNotificationConfig.cs        # Push notification webhook config
+│   ├── AgentCard.cs                     # AgentCard, AgentSkill, AgentProvider (Protocol namespace)
+│   ├── A2ATask.cs                       # Task, TaskStatus, TaskState, Artifact (Protocol namespace)
+│   ├── A2AMessage.cs                    # Message, Part, SendMessageRequest/Response (Protocol namespace)
+│   └── PushNotificationConfig.cs        # Push notification webhook config (Protocol namespace)
 ├── AspireOllama.A2A.CoordinatorAgent/   # Workflow orchestrator (hub)
 │   ├── Program.cs
 │   └── CoordinatorA2AServer.cs

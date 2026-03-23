@@ -1,3 +1,4 @@
+using AspireOllama.A2A.Protocol;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -138,7 +139,7 @@ public static class A2AHostExtensions
         }
     }
 
-    private static bool IsSkillForbidden(IA2AServer server, HttpContext httpContext, A2AMessage message) =>
+    private static bool IsSkillForbidden(IA2AServer server, HttpContext httpContext, Message message) =>
         server is ISkillAuthorizationProvider provider
         && provider.ResolveSkill(message) is { } skillId
         && provider.GetSkillRoles().TryGetValue(skillId, out var requiredRole)

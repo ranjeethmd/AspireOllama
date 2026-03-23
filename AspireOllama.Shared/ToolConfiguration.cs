@@ -32,8 +32,8 @@ public class ToolConfiguration
     public string SandboxPath { get; set; } = "./sandbox";
 
     /// <summary>
-    /// Enable image analysis tool using LLaVA vision model.
-    /// When enabled, Llama 3 can delegate image processing to LLaVA.
+    /// Enable image analysis tool using Qwen2.5-VL vision model.
+    /// When enabled, Qwen3 can delegate image processing to Qwen2.5-VL.
     /// </summary>
     public bool EnableImageAnalysis { get; set; } = true;
 

@@ -1,3 +1,4 @@
+using AspireOllama.A2A.Protocol;
 namespace AspireOllama.A2A.Shared;
 
 /// <summary>
@@ -13,7 +14,7 @@ public interface ISkillAuthorizationProvider
     /// </summary>
     /// <param name="message">The incoming A2A message.</param>
     /// <returns>The skill ID (e.g. "create_plan", "review_code") or <c>null</c> if no specific skill matches.</returns>
-    string? ResolveSkill(A2AMessage message);
+    string? ResolveSkill(Message message);
 
     /// <summary>
     /// Returns the skill-to-role mapping for this agent.

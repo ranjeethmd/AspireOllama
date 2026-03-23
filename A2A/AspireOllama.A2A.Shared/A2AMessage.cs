@@ -1,21 +1,22 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace AspireOllama.A2A.Shared;
+namespace AspireOllama.A2A.Protocol;
 
 /// <summary>
-/// Message format following A2A Protocol specification.
+/// Message per A2A Protocol specification.
 /// </summary>
-public class A2AMessage
+public class Message
 {
     [JsonPropertyName("messageId")]
     public string MessageId { get; set; } = Guid.NewGuid().ToString();
 
     [JsonPropertyName("role")]
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(MessageRoleConverter))]
     public MessageRole Role { get; set; } = MessageRole.User;
 
     [JsonPropertyName("parts")]
-    public List<A2APart> Parts { get; set; } = [];
+    public List<Part> Parts { get; set; } = [];
 
     [JsonPropertyName("taskId")]
     public string? TaskId { get; set; }
@@ -30,7 +31,10 @@ public class A2AMessage
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter))]
+/// <summary>
+/// Message roles per A2A Protocol specification.
+/// Serializes as lowercase: user, agent.
+/// </summary>
 public enum MessageRole
 {
     User,
@@ -38,9 +42,31 @@ public enum MessageRole
 }
 
 /// <summary>
-/// Content part of a message or artifact.
+/// Custom JSON converter for MessageRole — serializes to A2A spec format (lowercase).
 /// </summary>
-public class A2APart
+public class MessageRoleConverter : JsonConverter<MessageRole>
+{
+    public override MessageRole Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.GetString() switch
+        {
+            "user" => MessageRole.User,
+            "agent" => MessageRole.Agent,
+            _ => MessageRole.User
+        };
+
+    public override void Write(Utf8JsonWriter writer, MessageRole value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value switch
+        {
+            MessageRole.User => "user",
+            MessageRole.Agent => "agent",
+            _ => "user"
+        });
+}
+
+/// <summary>
+/// Content part per A2A Protocol specification.
+/// </summary>
+public class Part
 {
     [JsonPropertyName("text")]
     public string? Text { get; set; }
@@ -60,17 +86,17 @@ public class A2APart
     [JsonPropertyName("filename")]
     public string? Filename { get; set; }
 
-    public static A2APart FromText(string text) => new() { Text = text };
-    public static A2APart FromData(object data, string mediaType = "application/json") => new() { Data = data, MediaType = mediaType };
+    public static Part FromText(string text) => new() { Text = text };
+    public static Part FromData(object data, string mediaType = "application/json") => new() { Data = data, MediaType = mediaType };
 }
 
 /// <summary>
-/// Request to send a message to an agent.
+/// Request to send a message to an agent per A2A Protocol specification.
 /// </summary>
 public class SendMessageRequest
 {
     [JsonPropertyName("message")]
-    public A2AMessage Message { get; set; } = new();
+    public Message Message { get; set; } = new();
 
     [JsonPropertyName("configuration")]
     public SendMessageConfiguration? Configuration { get; set; }
@@ -89,13 +115,13 @@ public class SendMessageConfiguration
 }
 
 /// <summary>
-/// Response from sending a message to an agent.
+/// Response from sending a message to an agent per A2A Protocol specification.
 /// </summary>
 public class SendMessageResponse
 {
     [JsonPropertyName("task")]
-    public A2ATask? Task { get; set; }
+    public Task? Task { get; set; }
 
     [JsonPropertyName("message")]
-    public A2AMessage? Message { get; set; }
+    public Message? Message { get; set; }
 }

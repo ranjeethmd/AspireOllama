@@ -1,0 +1,61 @@
+receivers:
+  # Collect Docker container logs from JSON log files
+  filelog:
+    include:
+      - /var/lib/docker/containers/*/*.log
+    include_file_name: false
+    include_file_path: true
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.time
+          layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+      - type: move
+        from: attributes.log
+        to: body
+
+  # Collect Docker container stats (CPU, memory, network)
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 30s
+    container_labels_to_metric_labels:
+      com.docker.compose.service: service.name
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+
+  # Tag all telemetry with AspireOllama namespace
+  resource:
+    attributes:
+      - key: service.namespace
+        value: AspireOllama
+        action: upsert
+      - key: deployment.environment
+        value: docker
+        action: upsert
+
+  # Map Docker compose service name to service.name
+  resource/service_name:
+    attributes:
+      - key: service.name
+        from_attribute: com.docker.compose.service
+        action: upsert
+
+exporters:
+  otlp_http:
+    endpoint: https://otlp.nr-data.net
+    headers:
+      api-key: ${env:NEW_RELIC_LICENSE_KEY}
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [resource, batch]
+      exporters: [otlp_http]
+    metrics:
+      receivers: [docker_stats]
+      processors: [resource, batch]
+      exporters: [otlp_http]

@@ -1,9 +1,9 @@
 using System.Text.Json.Serialization;
 
-namespace AspireOllama.A2A.Shared;
+namespace AspireOllama.A2A.Protocol;
 
 /// <summary>
-/// Agent Card following A2A Protocol specification.
+/// Agent Card per A2A Protocol specification.
 /// Published at /.well-known/agent.json
 /// </summary>
 public class AgentCard

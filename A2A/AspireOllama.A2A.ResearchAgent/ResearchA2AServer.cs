@@ -1,3 +1,5 @@
+using AspireOllama.A2A.Protocol;
+using Task = System.Threading.Tasks.Task;
 using AspireOllama.A2A.ResearchAgent.Models.A2a;
 using AspireOllama.A2A.Shared;
 using AspireOllama.ServiceDefaults.Authentication;
@@ -10,13 +12,12 @@ namespace AspireOllama.A2A.ResearchAgent;
 public class ResearchA2AServer : A2AServerBase
 {
     private readonly Lazy<IOllamaApiClient> _ollama;
-    private readonly KnownAgentsOptions _knownAgents;
 
     private static readonly Dictionary<string, string> KnowledgeBase = new()
     {
         ["dotnet"] = ".NET is a free, cross-platform developer platform for building many types of applications.",
         ["aspire"] = ".NET Aspire is an opinionated, cloud ready stack for building observable, production ready, distributed applications.",
-        ["ollama"] = "Ollama is a tool for running large language models locally. It supports models like llama, mistral, llava.",
+        ["ollama"] = "Ollama is a tool for running large language models locally. It supports models like Qwen3, Qwen2.5-VL, and nomic-embed-text.",
         ["mcp"] = "Model Context Protocol (MCP) is a standard for connecting AI models to external tools and data sources.",
         ["blazor"] = "Blazor is a framework for building interactive web UI with .NET instead of JavaScript.",
         ["a2a"] = "Agent-to-Agent (A2A) protocol enables AI agents to communicate and collaborate with each other."
@@ -24,12 +25,10 @@ public class ResearchA2AServer : A2AServerBase
 
     public ResearchA2AServer(
         Lazy<IOllamaApiClient> ollamaClient,
-        IOptions<KnownAgentsOptions> knownAgents,
         IA2AAgentClient a2aClient,
         ILogger<ResearchA2AServer> logger) : base(logger, a2aClient)
     {
         _ollama = ollamaClient;
-        _knownAgents = knownAgents.Value;
     }
 
     public override AgentCard GetAgentCard() => new()
@@ -77,7 +76,7 @@ public class ResearchA2AServer : A2AServerBase
         ]
     };
 
-    public override string? ResolveSkill(A2AMessage message)
+    public override string? ResolveSkill(Message message)
     {
         var text = GetTextFromMessage(message).ToLowerInvariant();
         return text switch
@@ -92,7 +91,7 @@ public class ResearchA2AServer : A2AServerBase
     public override IReadOnlyDictionary<string, string> GetSkillRoles()
         => AuthRoles.A2ASkillRoles.GetValueOrDefault("research") ?? new Dictionary<string, string>();
 
-    public override async Task<A2ATask> ProcessMessageAsync(A2AMessage message, CancellationToken ct)
+    public override async Task<Protocol.Task> ProcessMessageAsync(Message message, CancellationToken ct)
     {
         var task = CreateTask(message);
         UpdateTaskStatus(task, TaskState.Working, "Processing research request...");
@@ -132,7 +131,7 @@ public class ResearchA2AServer : A2AServerBase
         return task;
     }
 
-    private async Task ProcessSearchKnowledge(A2ATask task, string query, CancellationToken ct)
+    private async Task ProcessSearchKnowledge(Protocol.Task task, string query, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Searching knowledge base...", 30);
 
@@ -161,7 +160,7 @@ public class ResearchA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessGetTopicDetails(A2ATask task, string topic, CancellationToken ct)
+    private async Task ProcessGetTopicDetails(Protocol.Task task, string topic, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Retrieving topic details...", 30);
 
@@ -186,7 +185,7 @@ public class ResearchA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessGatherContext(A2ATask task, string topics, CancellationToken ct)
+    private async Task ProcessGatherContext(Protocol.Task task, string topics, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Gathering context...", 30);
 
@@ -222,7 +221,7 @@ public class ResearchA2AServer : A2AServerBase
         }
     }
 
-    private async Task ProcessSuggestTopics(A2ATask task, string query, CancellationToken ct)
+    private async Task ProcessSuggestTopics(Protocol.Task task, string query, CancellationToken ct)
     {
         UpdateTaskStatus(task, TaskState.Working, "Suggesting related topics...", 30);
 
@@ -247,19 +246,4 @@ public class ResearchA2AServer : A2AServerBase
         }
     }
 
-    private static T? ParseJsonResponse<T>(string content) where T : class
-    {
-        try
-        {
-            var jsonStart = content.IndexOf('{');
-            var jsonEnd = content.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
-            {
-                var json = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-        }
-        catch { }
-        return null;
-    }
 }

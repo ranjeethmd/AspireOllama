@@ -361,10 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-/nul
-/AspireOllama.ApiService/chat.db
-/AspireOllama.ApiService/chat.db-shm
-/AspireOllama.ApiService/chat.db-wal
 
 # Terraform-generated Azure AD secrets (never commit)
 **/appsettings.Secrets.json

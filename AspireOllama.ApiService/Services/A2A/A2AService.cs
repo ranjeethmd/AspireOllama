@@ -1,6 +1,8 @@
+using AspireOllama.A2A.Protocol;
 using AspireOllama.Shared;
 using System.Diagnostics;
 using System.Text.Json;
+using Task = System.Threading.Tasks.Task;
 
 namespace AspireOllama.ApiService.Services.A2A;
 
@@ -85,12 +87,12 @@ public class A2AService(
             // Build the message text that triggers the skill
             var messageText = BuildMessageForTool(request.ToolName, request.Arguments);
 
-            var a2aRequest = new A2AMessageRequest
+            var a2aRequest = new SendMessageRequest
             {
-                Message = new A2AMessage
+                Message = new AspireOllama.A2A.Protocol.Message
                 {
-                    Role = "user",
-                    Parts = [new A2APart { Text = messageText }]
+                    Role = MessageRole.User,
+                    Parts = [Part.FromText(messageText)]
                 }
             };
 
@@ -100,7 +102,7 @@ public class A2AService(
             var response = await client.PostAsJsonAsync("/a2a/message:send", a2aRequest, _jsonOptions, ct);
             response.EnsureSuccessStatusCode();
 
-            var result = await response.Content.ReadFromJsonAsync<A2AMessageResponse>(_jsonOptions, ct);
+            var result = await response.Content.ReadFromJsonAsync<SendMessageResponse>(_jsonOptions, ct);
             sw.Stop();
 
             // Extract result from task artifacts
@@ -125,7 +127,7 @@ public class A2AService(
             // Fallback to task history if no artifacts
             if (parsedResult is null && result?.Task?.History?.Count > 0)
             {
-                var lastAgentMessage = result.Task.History.LastOrDefault(h => h.Role == "agent");
+                var lastAgentMessage = result.Task.History.LastOrDefault(h => h.Role == MessageRole.Agent);
                 if (lastAgentMessage?.Parts?.Count > 0)
                 {
                     parsedResult = lastAgentMessage.Parts[0].Text;
@@ -136,7 +138,7 @@ public class A2AService(
             {
                 AgentName = request.AgentName,
                 ToolName = request.ToolName,
-                Success = result?.Task?.Status?.State == "Completed",
+                Success = result?.Task?.Status?.State == TaskState.Completed,
                 Result = parsedResult,
                 ExecutionTimeMs = sw.ElapsedMilliseconds
             };
@@ -171,12 +173,12 @@ public class A2AService(
 
             // Send to coordinator via A2A
             var messageText = request.Task;
-            var a2aRequest = new A2AMessageRequest
+            var a2aRequest = new SendMessageRequest
             {
-                Message = new A2AMessage
+                Message = new AspireOllama.A2A.Protocol.Message
                 {
-                    Role = "user",
-                    Parts = [new A2APart { Text = messageText }]
+                    Role = MessageRole.User,
+                    Parts = [Part.FromText(messageText)]
                 }
             };
 
@@ -184,7 +186,7 @@ public class A2AService(
             var response = await client.PostAsJsonAsync("/a2a/message:send", a2aRequest, _jsonOptions, ct);
             response.EnsureSuccessStatusCode();
 
-            var result = await response.Content.ReadFromJsonAsync<A2AMessageResponse>(_jsonOptions, ct);
+            var result = await response.Content.ReadFromJsonAsync<SendMessageResponse>(_jsonOptions, ct);
             totalSw.Stop();
 
             // Parse the workflow_trace artifact for the UI
@@ -284,7 +286,7 @@ public class A2AService(
             }
             if (string.IsNullOrWhiteSpace(finalResult) && result?.Task?.History?.Count > 0)
             {
-                var lastAgent = result.Task.History.LastOrDefault(h => h.Role == "agent");
+                var lastAgent = result.Task.History.LastOrDefault(h => h.Role == MessageRole.Agent);
                 finalResult = lastAgent?.Parts?.FirstOrDefault()?.Text;
             }
             finalResult ??= result?.Task?.Status?.Message ?? "Workflow completed";
@@ -338,64 +340,6 @@ public class A2AService(
             _ => $"{toolName}: {JsonSerializer.Serialize(args)}"
         };
     }
-}
-
-// A2A Protocol DTOs for ApiService
-public class AgentCard
-{
-    public string? Name { get; set; }
-    public string? Description { get; set; }
-    public string? Version { get; set; }
-    public List<AgentSkill>? Skills { get; set; }
-}
-
-public class AgentSkill
-{
-    public string? Id { get; set; }
-    public string? Name { get; set; }
-    public string? Description { get; set; }
-}
-
-public class A2AMessageRequest
-{
-    public A2AMessage? Message { get; set; }
-}
-
-public class A2AMessage
-{
-    public string? Role { get; set; }
-    public List<A2APart>? Parts { get; set; }
-}
-
-public class A2APart
-{
-    public string? Text { get; set; }
-    public object? Data { get; set; }
-}
-
-public class A2AMessageResponse
-{
-    public A2ATaskInfo? Task { get; set; }
-}
-
-public class A2ATaskInfo
-{
-    public string? Id { get; set; }
-    public A2ATaskStatus? Status { get; set; }
-    public List<A2AArtifact>? Artifacts { get; set; }
-    public List<A2AMessage>? History { get; set; }
-}
-
-public class A2ATaskStatus
-{
-    public string? State { get; set; }
-    public string? Message { get; set; }
-}
-
-public class A2AArtifact
-{
-    public string? Name { get; set; }
-    public List<A2APart>? Parts { get; set; }
 }
 
 public class WorkflowTraceStep

@@ -64,7 +64,8 @@ A2A/
   AspireOllama.A2A.ReviewerAgent/    — review_response, review_code, review_plan, provide_feedback
   AspireOllama.A2A.ResearchAgent/    — search_knowledge, get_topic_details, gather_context, suggest_topics
   AspireOllama.A2A.CodeAgent/        — execute_csharp, generate_code, analyze_code, generate_tests, refactor_code
-  AspireOllama.A2A.Shared/           — A2AServerBase, IA2AServer, ISkillAuthorizationProvider, A2AAgentClient, protocol models
+  AspireOllama.A2A.Shared/           — A2AServerBase, IA2AServer, ISkillAuthorizationProvider, A2AAgentClient
+                                       Protocol models in AspireOllama.A2A.Protocol namespace (Task, Message, Part, Artifact, AgentCard)
 ```
 
 ## Common Patterns
@@ -96,20 +97,26 @@ app.MapA2AEndpoints<MyServer>(AuthRoles.MyAccess);  // Maps all protocol endpoin
 6. Update Coordinator's planning prompt with new agent skills
 
 ### A2A Protocol Architecture
-```
-IA2AServer (interface — pure A2A protocol spec, 11 operations)
-ISkillAuthorizationProvider (interface — per-skill role checks)
-  └── A2AServerBase (abstract — implements both, virtual defaults)
-       ├── PlannerA2AServer       (overrides ResolveSkill + GetSkillRoles)
-       ├── ReviewerA2AServer      (overrides ResolveSkill + GetSkillRoles)
-       ├── ResearchA2AServer      (overrides ResolveSkill + GetSkillRoles)
-       ├── CodeA2AServer          (overrides ResolveSkill + GetSkillRoles)
-       └── CoordinatorA2AServer   (overrides ResolveSkill + GetSkillRoles)
 
-Extensions (A2A.Shared):
-  AddA2AServices()       — known agents, HTTP clients, rate limiting
-  AddA2AServer<T>()      — registers server singleton
-  MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting, skill auth, 501 for unsupported
+Protocol models use `AspireOllama.A2A.Protocol` namespace with spec-aligned names (`Task`, `Message`, `Part`, `Artifact`). `Task` intentionally clashes with `System.Threading.Tasks.Task` — to keep protocol naming pristine, resolved via `using Task = System.Threading.Tasks.Task;` alias. Protocol task is always `Protocol.Task`.
+
+```
+AspireOllama.A2A.Protocol (namespace — spec models):
+  Task, TaskStatus, TaskState, Message, MessageRole, Part, Artifact,
+  AgentCard, SendMessageRequest, SendMessageResponse, PushNotificationConfig
+
+AspireOllama.A2A.Shared (namespace — server infrastructure):
+  IA2AServer (interface — pure A2A protocol spec, 11 operations)
+  ISkillAuthorizationProvider (interface — per-skill role checks)
+    └── A2AServerBase (abstract — implements both, virtual defaults)
+         ├── CoordinatorA2AServer, PlannerA2AServer, ReviewerA2AServer,
+         ├── ResearchA2AServer, CodeA2AServer
+         └── (all override ResolveSkill + GetSkillRoles)
+
+  Extensions:
+    AddA2AServices()       — known agents, HTTP clients, rate limiting
+    AddA2AServer<T>()      — registers server singleton
+    MapA2AEndpoints<T>()   — maps all endpoints, auth, rate limiting, skill auth, 501 for unsupported
 ```
 
 ### Per-Skill Authorization
