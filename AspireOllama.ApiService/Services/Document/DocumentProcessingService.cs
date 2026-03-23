@@ -52,8 +52,8 @@ public class DocumentProcessingService : IDocumentProcessingService
                 _ => $"[Unsupported file type '{fileType}' for: {file.FileName}]"
             };
 
-            _logger.LogInformation("Extracted {Length} chars from {FileName}", result?.Length ?? 0, file.FileName);
-            return result;
+            _logger.LogInformation("Extracted {Length} chars from {FileName}", result.Length, file.FileName);
+            return result ?? string.Empty;
         }
         catch (Exception ex)
         {
