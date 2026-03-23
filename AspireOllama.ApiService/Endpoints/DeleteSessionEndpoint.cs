@@ -1,5 +1,6 @@
 using AspireOllama.ApiService.Services.Session;
 using FastEndpoints;
+using System.Security.Claims;
 using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
@@ -37,7 +38,11 @@ public class DeleteSessionEndpoint : Endpoint<DeleteSessionRequest>
 
     public override async Task HandleAsync(DeleteSessionRequest req, CancellationToken ct)
     {
-        var deleted = await _sessionService.DeleteAsync(req.Id);
+        var userId = HttpContext.User.FindFirst("oid")?.Value
+            ?? HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? "anonymous";
+
+        var deleted = await _sessionService.DeleteAsync(req.Id, userId);
 
         if (!deleted)
         {

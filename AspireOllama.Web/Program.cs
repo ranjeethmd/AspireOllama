@@ -86,6 +86,17 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Security headers
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["Content-Security-Policy"] =
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    await next();
+});
+
 app.UseAntiforgery();   // CSRF protection for Blazor forms
 app.UseOutputCache();
 
@@ -128,8 +139,7 @@ app.MapPost("/upload-documents", async (HttpRequest request, IDownstreamApi down
         user);
 
     return Results.Ok(response ?? new AspireOllama.Shared.DocumentUploadResponse());
-}).RequireAuthorization()
-  .DisableAntiforgery();
+}).RequireAuthorization();
 
 // Map Blazor components with interactive server rendering
 // RequireAuthorization ensures unauthenticated users are redirected to Azure AD login

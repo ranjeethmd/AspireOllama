@@ -36,15 +36,15 @@ public class WebSearchTool : ITool
 
     [Description("Search the internet for current information, news, or facts. Uses Google via SerpAPI and Bing.")]
     public async Task<string> SearchAsync(
-        [Description("The chat session ID")] string session_id,
+        [Description("The chat session ID")] string sessionId,
         [Description("The search query")] string query,
-        [Description("Maximum results (1-10, default 5)")] int max_results = 5)
+        [Description("Maximum results (1-10, default 5)")] int maxResults = 5)
     {
         if (string.IsNullOrWhiteSpace(query))
             return "Error: Search query cannot be empty.";
 
-        max_results = Math.Clamp(max_results, 1, 10);
-        _logger.LogInformation("Web search: query='{Query}', max={Max}", query, max_results);
+        maxResults = Math.Clamp(maxResults, 1, 10);
+        _logger.LogInformation("Web search: query='{Query}', max={Max}", query, maxResults);
 
         var client = _httpClientFactory.CreateClient();
         var tasks = new List<Task<List<WebSearchResult>>>();
@@ -52,12 +52,12 @@ public class WebSearchTool : ITool
         // SerpAPI (Google results)
         var serpApiKey = _config["Tools:WebSearch:SerpApiKey"];
         if (!string.IsNullOrEmpty(serpApiKey))
-            tasks.Add(SearchSerpApiAsync(client, query, serpApiKey, max_results));
+            tasks.Add(SearchSerpApiAsync(client, query, serpApiKey, maxResults));
 
         // Bing
         var bingKey = _config["Tools:WebSearch:BingApiKey"];
         if (!string.IsNullOrEmpty(bingKey))
-            tasks.Add(SearchBingAsync(client, query, bingKey, max_results));
+            tasks.Add(SearchBingAsync(client, query, bingKey, maxResults));
 
         if (tasks.Count == 0)
             return "Web search not configured. Set Tools:WebSearch:SerpApiKey or Tools:WebSearch:BingApiKey.";
@@ -66,7 +66,7 @@ public class WebSearchTool : ITool
 
         var results = tasks.SelectMany(t => t.Result)
             .GroupBy(r => r.Url).Select(g => g.First())
-            .Take(max_results).ToList();
+            .Take(maxResults).ToList();
 
         if (results.Count == 0)
             return $"No results found for '{query}'.";

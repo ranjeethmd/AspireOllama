@@ -1907,11 +1907,13 @@
         return new MarkupString(svg);
     }
 
+    private static readonly Ganss.Xss.HtmlSanitizer Sanitizer = new();
+
     private static string RenderMarkdown(string? markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return "<p>No results available.</p>";
         var pipeline = new Markdig.MarkdownPipelineBuilder().Build();
-        return Markdig.Markdown.ToHtml(markdown, pipeline);
+        return Sanitizer.Sanitize(Markdig.Markdown.ToHtml(markdown, pipeline));
     }
 
     private string FormatResult(object? result)

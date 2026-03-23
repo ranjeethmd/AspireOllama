@@ -26,7 +26,7 @@ public class CalculatorTool : ITool
 
     [Description("Evaluate a mathematical expression. Supports +, -, *, /, parentheses, powers (^), and common math functions like sqrt, pow, abs, sin, cos, tan, log, PI. Use this for any calculation the user asks for.")]
     public async Task<string> Calculate(
-        [Description("The chat session ID")] string session_id,
+        [Description("The chat session ID")] string sessionId,
         [Description("The mathematical expression to evaluate, e.g. '(15 * 7) + 23' or 'Sqrt(144)' or 'Pow(2,10)'")] string expression)
     {
         _logger.LogInformation("Calculator tool: {Expression}", expression);

@@ -25,11 +25,11 @@ public class AiChatService : IAiChatService
         IMPORTANT: Your training data has a knowledge cutoff. You do NOT have access to current events, news, or recent information.
         When users ask about news, current events, today's happenings, recent developments, or anything after your training cutoff — you MUST call web_search. Do NOT try to answer from memory.
 
-        You have these tools (ALWAYS pass session_id from the user's message):
-        1. calculator(session_id, expression) - Evaluate math expressions.
-        2. search_knowledge_base(session_id, query, top_k) - Search uploaded documents. Results have relevance scores (0-1). Only use above 0.6.
-        3. analyze_image(session_id, instruction) - Analyze images from the conversation.
-        4. web_search(session_id, query, max_results) - Search Google and Bing for current real-time information.
+        You have these tools (ALWAYS pass sessionId from the user's message):
+        1. calculator(sessionId, expression) - Evaluate math expressions.
+        2. search_knowledge_base(sessionId, query, topK) - Search uploaded documents. Results have relevance scores (0-1). Only use above 0.6.
+        3. analyze_image(sessionId, instruction) - Analyze images from the conversation.
+        4. web_search(sessionId, query, maxResults) - Search Google and Bing for current real-time information.
 
         WHEN TO USE TOOLS:
         - "what's the news today", "latest", "current events", "what happened" → ALWAYS call web_search
@@ -86,9 +86,9 @@ public class AiChatService : IAiChatService
 
         var messages = BuildHistoryMessages(history);
 
-        // Build user message with session_id
+        // Build user message with sessionId
         var userText = request.Content?.Trim();
-        var sessionTag = $"[session_id: {request.SessionId}]";
+        var sessionTag = $"[sessionId: {request.SessionId}]";
 
         if (imageCount > 0)
         {

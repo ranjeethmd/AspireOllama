@@ -7,6 +7,9 @@ public class TextChunkingService : ITextChunkingService
         if (string.IsNullOrWhiteSpace(text))
             return [];
 
+        if (overlap >= chunkSize)
+            throw new ArgumentException($"Overlap ({overlap}) must be less than chunk size ({chunkSize}).");
+
         var chunks = new List<TextChunk>();
         var index = 0;
         var position = 0;

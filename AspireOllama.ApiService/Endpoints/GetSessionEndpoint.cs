@@ -1,6 +1,7 @@
 using AspireOllama.ApiService.Services.Session;
 using AspireOllama.Shared;
 using FastEndpoints;
+using System.Security.Claims;
 using static AspireOllama.ServiceDefaults.Authentication.AuthRoles;
 
 namespace AspireOllama.ApiService.Endpoints;
@@ -38,7 +39,11 @@ public class GetSessionEndpoint : Endpoint<GetSessionRequest, ChatSessionDetails
 
     public override async Task HandleAsync(GetSessionRequest req, CancellationToken ct)
     {
-        var session = await _sessionService.GetByIdAsync(req.Id);
+        var userId = HttpContext.User.FindFirst("oid")?.Value
+            ?? HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? "anonymous";
+
+        var session = await _sessionService.GetByIdAsync(req.Id, userId);
 
         if (session is null)
         {

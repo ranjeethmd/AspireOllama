@@ -203,6 +203,7 @@ public static class McpOpenApiGenerator
         if (type.IsClass || type.IsValueType)
         {
             var schema = new OpenApiSchema { Type = JsonSchemaType.Object };
+            schema.Properties ??= new Dictionary<string, IOpenApiSchema>();
             foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 schema.Properties[prop.Name] = MapType(prop.PropertyType);

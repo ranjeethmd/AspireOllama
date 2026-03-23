@@ -11,13 +11,13 @@ public class RagSearchTool(IRagRetrievalService ragService, ILogger<RagSearchToo
 
     [Description("Search the uploaded knowledge base for relevant information. Returns results ranked by relevance score (0-1). Only use results with high relevance (above 0.6) to answer questions. Ignore low-relevance results as noise.")]
     public async Task<string> SearchAsync(
-        [Description("The chat session ID")] string session_id,
+        [Description("The chat session ID")] string sessionId,
         [Description("The search query — be specific and use key terms from the user's question")] string query,
-        [Description("Number of results to return (1-10, default 3)")] int top_k = 3,
+        [Description("Number of results to return (1-10, default 3)")] int topK = 3,
         CancellationToken ct = default)
     {
-        logger.LogInformation("RAG tool: session={SessionId}, query={Query}, topK={TopK}", session_id, query, top_k);
-        var clampedK = Math.Clamp(top_k, 1, 10);
+        logger.LogInformation("RAG tool: session={SessionId}, query={Query}, topK={TopK}", sessionId, query, topK);
+        var clampedK = Math.Clamp(topK, 1, 10);
         var chunks = await ragService.SearchAsync(query, topK: clampedK, ct: ct);
         if (chunks.Count == 0)
             return "No relevant documents found in the knowledge base.";

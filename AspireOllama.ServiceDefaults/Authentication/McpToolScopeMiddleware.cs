@@ -56,6 +56,18 @@ public class McpToolRoleMiddleware
 
         if (toolName is not null)
         {
+            if (!(context.User.Identity?.IsAuthenticated ?? false))
+            {
+                _logger.LogWarning("Unauthenticated MCP tool call attempt: {Tool}", toolName);
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    jsonrpc = "2.0",
+                    error = new { code = -32600, message = "Authentication required" }
+                });
+                return;
+            }
+
             if (!AuthRoles.McpToolRoles.TryGetValue(toolName, out var requiredRole))
             {
                 _logger.LogWarning("Unknown MCP tool: {Tool}", toolName);

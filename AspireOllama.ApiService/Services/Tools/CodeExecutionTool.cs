@@ -1,5 +1,8 @@
 using AspireOllama.Shared;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.Extensions.Options;
 using System.ComponentModel;
@@ -45,23 +48,12 @@ public class CodeExecutionTool : ITool
             return "Error: Code cannot be empty.";
         }
 
-        // Basic security checks
-        var lowerCode = code.ToLowerInvariant();
-        var blockedPatterns = new[]
+        // Security: validate via Roslyn syntax tree to prevent bypass via whitespace/comments/concatenation
+        var validationError = ValidateCodeSafety(code);
+        if (validationError is not null)
         {
-            "system.io", "file.", "directory.", "process.", "environment.",
-            "reflection", "assembly", "type.gettype", "activator.", "marshal.",
-            "unsafe", "fixed(", "stackalloc", "httpwebrequest", "httpclient",
-            "socket", "tcpclient", "udpclient", "webrequest", "webclient"
-        };
-
-        foreach (var pattern in blockedPatterns)
-        {
-            if (lowerCode.Contains(pattern))
-            {
-                _logger.LogWarning("Blocked code pattern detected: {Pattern}", pattern);
-                return $"Error: Code contains blocked pattern '{pattern}'. File, network, reflection, and process operations are not allowed.";
-            }
+            _logger.LogWarning("Blocked code: {Reason}", validationError);
+            return $"Error: {validationError}";
         }
 
         try
@@ -102,5 +94,65 @@ public class CodeExecutionTool : ITool
             _logger.LogError(ex, "Code execution error");
             return $"Execution error: {ex.Message}";
         }
+    }
+
+    private static readonly HashSet<string> BlockedNamespaces = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "System.IO", "System.Diagnostics", "System.Reflection", "System.Runtime.InteropServices",
+        "System.Net", "System.Net.Http", "System.Net.Sockets", "System.Security",
+        "System.Runtime.CompilerServices", "System.Threading", "Microsoft.Win32"
+    };
+
+    private static readonly HashSet<string> BlockedTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "File", "Directory", "Path", "FileInfo", "DirectoryInfo", "FileStream",
+        "StreamReader", "StreamWriter", "Process", "ProcessStartInfo",
+        "Environment", "Assembly", "Type", "Activator", "Marshal",
+        "HttpClient", "HttpWebRequest", "WebClient", "WebRequest",
+        "Socket", "TcpClient", "UdpClient", "TcpListener",
+        "RegistryKey", "Registry", "AppDomain", "GC"
+    };
+
+    private static string? ValidateCodeSafety(string code)
+    {
+        // Parse as a script (expression/statements) to match Roslyn scripting behavior
+        var tree = CSharpSyntaxTree.ParseText(code, CSharpParseOptions.Default.WithKind(SourceCodeKind.Script));
+        var root = tree.GetRoot();
+
+        // Check for unsafe/fixed/stackalloc keywords
+        foreach (var token in root.DescendantTokens())
+        {
+            if (token.IsKind(SyntaxKind.UnsafeKeyword))
+                return "Unsafe code is not allowed.";
+            if (token.IsKind(SyntaxKind.StackAllocKeyword))
+                return "Stack allocation is not allowed.";
+        }
+
+        // Check all identifiers and qualified names against blocklists
+        foreach (var node in root.DescendantNodes())
+        {
+            var name = node switch
+            {
+                QualifiedNameSyntax q => q.ToString(),
+                MemberAccessExpressionSyntax m => m.ToString(),
+                IdentifierNameSyntax id => id.Identifier.Text,
+                _ => null
+            };
+
+            if (name is null) continue;
+
+            // Check if any blocked namespace is referenced
+            foreach (var ns in BlockedNamespaces)
+            {
+                if (name.Contains(ns, StringComparison.OrdinalIgnoreCase))
+                    return $"Access to '{ns}' namespace is not allowed.";
+            }
+
+            // Check if any blocked type is used as an identifier
+            if (node is IdentifierNameSyntax identNode && BlockedTypes.Contains(identNode.Identifier.Text))
+                return $"Access to type '{identNode.Identifier.Text}' is not allowed.";
+        }
+
+        return null;
     }
 }

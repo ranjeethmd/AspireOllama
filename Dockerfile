@@ -30,6 +30,10 @@ ENV ASPNETCORE_URLS=http://+:8080
 WORKDIR /app
 COPY --from=build /app/publish .
 
+# Run as non-root user for security
+RUN adduser --disabled-password --gecos "" --no-create-home appuser
+USER appuser
+
 HEALTHCHECK --interval=30s --timeout=10s --retries=5 --start-period=60s \
     CMD curl -f http://localhost:8080/health || exit 1
 

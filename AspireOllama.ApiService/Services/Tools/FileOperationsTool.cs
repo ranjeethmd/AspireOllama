@@ -41,7 +41,7 @@ public class FileOperationsTool : ITool
     /// </summary>
     [Description("Lists files and directories in the sandbox directory. Use this to see what files are available.")]
     public string ListFiles(
-        [Description("The chat session ID")] string session_id,
+        [Description("The chat session ID")] string sessionId,
         [Description("Optional subdirectory path within the sandbox")]
         string? subPath = null)
     {
@@ -87,7 +87,7 @@ public class FileOperationsTool : ITool
     /// </summary>
     [Description("Reads and returns the contents of a text file from the sandbox directory.")]
     public string ReadFile(
-        [Description("The chat session ID")] string session_id,
+        [Description("The chat session ID")] string sessionId,
         [Description("The filename or relative path to read")]
         string fileName)
     {
@@ -135,7 +135,7 @@ public class FileOperationsTool : ITool
     /// </summary>
     [Description("Writes content to a text file in the sandbox directory. Creates the file if it doesn't exist.")]
     public string WriteFile(
-        [Description("The chat session ID")] string session_id,
+        [Description("The chat session ID")] string sessionId,
         [Description("The filename or relative path to write to")]
         string fileName,
         [Description("The content to write to the file")]
@@ -181,16 +181,21 @@ public class FileOperationsTool : ITool
     /// </summary>
     private string GetSafePath(string? relativePath)
     {
+        // Ensure sandbox path ends with separator to prevent sibling directory bypass
+        var safeSandbox = _sandboxPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
         if (string.IsNullOrWhiteSpace(relativePath))
         {
-            return _sandboxPath;
+            return safeSandbox.TrimEnd(Path.DirectorySeparatorChar);
         }
 
         // Normalize and combine paths
-        var fullPath = Path.GetFullPath(Path.Combine(_sandboxPath, relativePath));
+        var fullPath = Path.GetFullPath(Path.Combine(safeSandbox, relativePath));
 
         // Security check: ensure path is within sandbox
-        if (!fullPath.StartsWith(_sandboxPath, StringComparison.OrdinalIgnoreCase))
+        if (!fullPath.StartsWith(safeSandbox, StringComparison.OrdinalIgnoreCase) &&
+            !fullPath.Equals(safeSandbox.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("Access denied: Path is outside sandbox.");
         }

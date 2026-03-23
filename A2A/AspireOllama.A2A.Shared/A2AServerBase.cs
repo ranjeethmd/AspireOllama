@@ -255,19 +255,25 @@ public abstract class A2AServerBase : IA2AServer, ISkillAuthorizationProvider
         PropertyNameCaseInsensitive = true
     };
 
-    protected static T? ParseJsonResponse<T>(string content) where T : class
+    protected T? ParseJsonResponse<T>(string content) where T : class
     {
+        var jsonStart = content.IndexOf('{');
+        var jsonEnd = content.LastIndexOf('}');
+        if (jsonStart < 0 || jsonEnd <= jsonStart)
+        {
+            _logger.LogDebug("No JSON object found in LLM response for type {Type}", typeof(T).Name);
+            return null;
+        }
+
         try
         {
-            var jsonStart = content.IndexOf('{');
-            var jsonEnd = content.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
-            {
-                var json = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
-                return System.Text.Json.JsonSerializer.Deserialize<T>(json, JsonParseOptions);
-            }
+            var json = content.Substring(jsonStart, jsonEnd - jsonStart + 1);
+            return System.Text.Json.JsonSerializer.Deserialize<T>(json, JsonParseOptions);
         }
-        catch { }
-        return null;
+        catch (System.Text.Json.JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse JSON response for type {Type}", typeof(T).Name);
+            return null;
+        }
     }
 }
